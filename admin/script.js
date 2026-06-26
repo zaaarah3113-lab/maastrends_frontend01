@@ -1,3 +1,8 @@
+/* ── LIVE BACKEND CONFIG ──
+   Your Express/Mongoose backend on Render. All admin auth requests
+   (login, forgot-password OTP flow) go here. */
+var API_BASE = 'https://stackblitz-zentra-client-0.onrender.com';
+
 /* ── DATA ── */
 var PRODUCTS = [
   {id:1,name:'Silk Banarasi Saree',cat:'Saree',price:1299,mrp:1799,stock:'In Stock',fabric:'Pure Silk',care:'Dry Clean',desc:'Luxurious Banarasi silk with golden zari work.',img:'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=60&h=80&fit=crop'},
@@ -42,23 +47,9 @@ var TOP_PRODS = [{n:'Bridal 3-Piece Lehenga',cat:'3-Piece Set',sold:92,rev:32190
 
 var editingId = null;
 
-/* ── LOGIN ── */
-function doLogin(){
-  var u=document.getElementById('l-user').value;
-  var p=document.getElementById('l-pass').value;
-  if(u==='admin'&&p==='1234'){
-    document.getElementById('login-page').style.display='none';
-    document.getElementById('admin-app').style.display='block';
-    initAdmin();
-  } else {
-    document.getElementById('login-err').style.display='block';
-  }
-}
-function doLogout(){
-  document.getElementById('admin-app').style.display='none';
-  document.getElementById('login-page').style.display='flex';
-  document.getElementById('l-pass').value='';
-}
+/* ── LOGIN ──
+   Real login lives near the bottom of this file (doLogin / doLogout),
+   wired up to the live backend on Render. */
 
 /* ── INIT ── */
 function initAdmin(){
@@ -287,27 +278,124 @@ function showToast(msg,type){
 /* ── ESC ── */
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeProdModal();});
 
-function resetPasswordByMobile(){
-  var mobile=prompt('Enter registered mobile number:');
-  if(mobile==='9999999999'){
-    var np=prompt('Enter new password:');
-    localStorage.setItem('adminPassword',np);
-    alert('Password changed successfully');
-  }else{
-    alert('Mobile number not recognized');
+async function resetPasswordByMobile(){
+  var phone = prompt('Enter registered mobile number (10 digits):');
+  if(!phone) return;
+
+  try {
+    var otpRes = await fetch(API_BASE + '/api/auth/forgot-password/request-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone })
+    });
+    var otpData = await otpRes.json();
+    if(!otpRes.ok){
+      alert(otpData.error || 'Could not send OTP.');
+      return;
+    }
+
+    var otp = prompt('Enter the OTP sent to your mobile (check server logs for now):');
+    if(!otp) return;
+
+    var verifyRes = await fetch(API_BASE + '/api/auth/forgot-password/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone, otp: otp })
+    });
+    var verifyData = await verifyRes.json();
+    if(!verifyRes.ok){
+      alert(verifyData.error || 'Incorrect or expired OTP.');
+      return;
+    }
+
+    var newPassword = prompt('Enter new password (min 6 characters):');
+    if(!newPassword) return;
+
+    var resetRes = await fetch(API_BASE + '/api/auth/forgot-password/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone, otp: otp, newPassword: newPassword })
+    });
+    var resetData = await resetRes.json();
+    if(!resetRes.ok){
+      alert(resetData.error || 'Could not reset password.');
+      return;
+    }
+
+    alert('Password changed successfully. You can now log in with your new password.');
+  } catch (err) {
+    alert('Could not reach the server. Check your internet connection and try again.');
+    console.error('Forgot-password request failed:', err);
   }
 }
 
-var ADMIN_PASSWORD = localStorage.getItem('adminPassword') || '1234';
+doLogin = async function(){
+  var emailInput = document.getElementById('l-user');
+  var passInput  = document.getElementById('l-pass');
+  var errBox     = document.getElementById('login-err');
+  var btn        = document.querySelector('.btn-login');
 
-doLogin = function(){
-  var u=document.getElementById('l-user').value;
-  var p=document.getElementById('l-pass').value;
-  if(u==='admin' && p===ADMIN_PASSWORD){
-    document.getElementById('login-page').style.display='none';
-    document.getElementById('admin-app').style.display='block';
-    initAdmin();
-  } else {
-    document.getElementById('login-err').style.display='block';
+  var email = emailInput.value.trim();
+  var password = passInput.value;
+
+  errBox.style.display = 'none';
+  errBox.textContent = 'Invalid credentials.';
+
+  if(!email || !password){
+    errBox.textContent = 'Please enter both email and password.';
+    errBox.style.display = 'block';
+    return;
   }
+
+  var originalLabel = btn ? btn.textContent : null;
+  if(btn){ btn.textContent = 'Signing in…'; btn.disabled = true; }
+
+  try {
+    var res = await fetch(API_BASE + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: password })
+    });
+
+    var data = await res.json();
+
+    if(!res.ok){
+      // Backend returned 400/401/etc — e.g. wrong email or wrong password
+      errBox.textContent = data.error || 'Invalid credentials.';
+      errBox.style.display = 'block';
+      return;
+    }
+
+    if(!data.user || data.user.role !== 'admin'){
+      errBox.textContent = 'This account does not have admin access.';
+      errBox.style.display = 'block';
+      return;
+    }
+
+    // Success — store the token for authenticated admin requests
+    // (creating/editing/deleting products) and enter the dashboard.
+    localStorage.setItem('adminToken', data.token);
+    localStorage.setItem('adminUser', JSON.stringify(data.user));
+
+    document.getElementById('login-page').style.display = 'none';
+    document.getElementById('admin-app').style.display = 'block';
+    passInput.value = '';
+    initAdmin();
+
+  } catch (err) {
+    // Network-level failure: backend unreachable, CORS blocked, no internet, etc.
+    errBox.textContent = 'Could not reach the server. Check your internet connection and try again.';
+    errBox.style.display = 'block';
+    console.error('Login request failed:', err);
+  } finally {
+    if(btn){ btn.textContent = originalLabel; btn.disabled = false; }
+  }
+}
+
+function doLogout(){
+  localStorage.removeItem('adminToken');
+  localStorage.removeItem('adminUser');
+  document.getElementById('admin-app').style.display='none';
+  document.getElementById('login-page').style.display='flex';
+  document.getElementById('l-pass').value='';
 }

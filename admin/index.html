@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -24,16 +25,16 @@
       <div class="lr-title">Welcome back</div>
       <p class="lr-sub">Sign in to your admin account</p>
       <div class="lform-group">
-        <label>Username</label>
-        <input type="text" id="l-user" placeholder="Enter username" value="admin">
+        <label>Email</label>
+        <input type="email" id="l-user" placeholder="Enter admin email">
       </div>
       <div class="lform-group">
         <label>Password</label>
-        <input type="password" id="l-pass" placeholder="Enter password" value="1234" onkeydown="if(event.key==='Enter')doLogin()">
+        <input type="password" id="l-pass" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()">
       </div>
       <button class="btn-login" onclick="doLogin()">Sign In →</button>
-      <div class="login-error" id="login-err">Invalid credentials. Try admin / 1234</div>
-      <div style="margin-top:10px"><a href="#" onclick="resetPasswordByMobile()">Forgot Password?</a></div><div class="login-hint">Demo: username <span>admin</span> &nbsp;/&nbsp; password <span>1234</span></div>
+      <div class="login-error" id="login-err">Invalid credentials.</div>
+      <div style="margin-top:10px"><a href="#" onclick="resetPasswordByMobile()">Forgot Password?</a></div>
       <a class="back-store" href="index.html">← Back to Store</a>
     </div>
   </div>
