@@ -199,11 +199,19 @@ function openProdModal(id){
     document.getElementById('pm-fabric').value=p.fabric || '';
     document.getElementById('pm-care').value=p.care || '';
     document.getElementById('pm-desc').value=p.description || '';
-    document.getElementById('pm-stock').value=p.stock;
     document.getElementById('img-preview').innerHTML=`<img src="${p.image}" alt="">`;
+
+    // ── MAP NUMBER FROM DATABASE TO THE TEXT DROPDOWN ──
+    if (p.stock > 10) {
+      document.getElementById('pm-stock').value = 'In Stock';
+    } else if (p.stock > 0) {
+      document.getElementById('pm-stock').value = 'Low Stock';
+    } else {
+      document.getElementById('pm-stock').value = 'Out of Stock';
+    }
   } else {
     ['pm-name','pm-price','pm-mrp','pm-fabric','pm-care','pm-desc'].forEach(f=>document.getElementById(f).value='');
-    document.getElementById('pm-stock').value = 10;
+    document.getElementById('pm-stock').value = 'In Stock';
   }
   document.getElementById('prod-modal').classList.add('open');
 }
@@ -221,7 +229,17 @@ async function saveProd(){
   var name=document.getElementById('pm-name').value.trim();
   var price=parseInt(document.getElementById('pm-price').value)||0;
   var mrp=parseInt(document.getElementById('pm-mrp').value)||price;
-  var stock=parseInt(document.getElementById('pm-stock').value)||0;
+  
+  // ── MAP TEXT DROPDOWN VALUE TO A DATABASE NUMBER ──
+  var stockInputValue = document.getElementById('pm-stock').value;
+  var stock = 0;
+  if (stockInputValue === 'In Stock') {
+    stock = 20; // Set to a high stock number
+  } else if (stockInputValue === 'Low Stock') {
+    stock = 5;  // Set to a low stock number
+  } else {
+    stock = 0;  // Out of stock
+  }
   
   if(!name){showToast('Product name is required','error');return;}
   if(!price){showToast('Price is required','error');return;}
@@ -257,7 +275,6 @@ async function saveProd(){
     showToast(editingId ? 'Product updated successfully' : 'Product added successfully');
     closeProdModal();
     
-    // Refresh application state components synchronously from cloud database
     await fetchProducts();
     await fetchDashboardStats();
     renderProdsTable(PRODUCTS);
@@ -267,7 +284,6 @@ async function saveProd(){
     showToast(err.message || 'Error occurred while saving product info.', 'error');
   }
 }
-
 async function deleteProd(id){
   if(!confirm('Are you sure you want to delete this product?'))return;
   try {
