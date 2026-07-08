@@ -8,15 +8,59 @@ const API_BASE_URL = "https://stackblitz-zentra-client-0.onrender.com/api";
 
 /** Format price in Indian Rupees */
 function formatPrice(amount) {
-  return '₹' + amount.toLocaleString('en-IN');
+  const n = Number(amount ?? 0);
+  return '₹' + n.toLocaleString('en-IN');
 }
 
 /** Live products fetched from the backend database */
 let LIVE_PRODUCTS = [];
 
-/** Find product by ID (works with MongoDB _id or local id) */
+function getProductId(product) {
+  if (!product) return null;
+  return product._id ?? product.id ?? product.productId ?? null;
+}
+
+function normalizeProductImages(product) {
+  if (!product) return [];
+
+  const raw = Array.isArray(product.images)
+    ? product.images
+    : (product.image ? [product.image] : []);
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map(img => {
+      if (!img) return null;
+      if (typeof img === 'string') return img;
+      if (typeof img === 'object') {
+        return img.url || img.src || img.imageUrl || img.path || img.file || null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function normalizeProductSizes(product) {
+  if (product && Array.isArray(product.sizes) && product.sizes.length) return product.sizes;
+  return ['Free Size'];
+}
+
+function getCategoryLabel(product) {
+  if (!product) return 'Uncategorized';
+  if (typeof product.categoryLabel === 'string' && product.categoryLabel.trim()) return product.categoryLabel;
+  if (product.category) return String(product.category).replace(/_/g, ' ');
+  return 'Uncategorized';
+}
+
+/** Find product by ID (MongoDB _id + optional id/productId fallbacks) */
 function getProductById(id) {
-  return LIVE_PRODUCTS.find(p => p._id === id || p.id === id) || null;
+  const target = id == null ? null : String(id);
+  if (!target) return null;
+  return LIVE_PRODUCTS.find(p => {
+    const pid = getProductId(p);
+    return pid != null && String(pid) === target;
+  }) || null;
 }
 
 /** Filter products by category and search query */
@@ -30,10 +74,10 @@ function filterProducts(category, query) {
   if (query && query.trim()) {
     const q = query.trim().toLowerCase();
     filtered = filtered.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q) ||
-      (p.categoryLabel && p.categoryLabel.toLowerCase().includes(q)) ||
-      (p.category && p.category.replace(/_/g, ' ').includes(q))
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q) ||
+      ((p.categoryLabel || '').toString().toLowerCase().includes(q)) ||
+      ((p.category || '').toString().replace(/_/g, ' ').toLowerCase().includes(q))
     );
   }
 
@@ -169,8 +213,8 @@ async function loadCart() {
   try {    
     const res = await fetch(`${API_BASE_URL}/cart`, { credentials: 'include' });    
     const data = await res.json();    
-    cart = data.items || [];    
-    cartSubtotal = data.subtotal || 0;  
+    cart = data.items || [];
+    cartSubtotal = data.subtotal || 0;
   } catch (err) {    
     console.error('Failed to load cart:', err);    
     cart = [];    
@@ -192,14 +236,14 @@ async function addToCart(productId, quantity = 1, name = 'Item') {
       headers: { 'Content-Type': 'application/json' },      
       body: JSON.stringify({ productId, quantity })    
     });    
-    const data = await res.json();    
     if (!res.ok) {      
-      showToast(data.error || 'Could not add item to cart.');      
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      showToast(data?.error || 'Could not add item to cart.');
       return;    
     }    
-    cart = data.items;    
-    cartSubtotal = data.subtotal;    
-    updateCartUI();    
+    // Refresh from server-side cookie session cart (single source of truth)
+    await loadCart();
     showToast(`${name} added to cart`);  
   } catch (err) {    
     console.error('Add to cart failed:', err);    
@@ -216,14 +260,14 @@ async function updateCartItemQty(productId, quantity) {
       headers: { 'Content-Type': 'application/json' },      
       body: JSON.stringify({ quantity })    
     });    
-    const data = await res.json();    
     if (!res.ok) {      
-      showToast(data.error || 'Could not update cart.');      
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      showToast(data?.error || 'Could not update cart.');
       return;    
     }    
-    cart = data.items;    
-    cartSubtotal = data.subtotal;    
-    updateCartUI();  
+    // Refresh from server-side cookie session cart (single source of truth)
+    await loadCart();
   } catch (err) {    
     console.error('Update cart failed:', err);    
     showToast('Could not reach the server. Please try again.');  
@@ -237,10 +281,14 @@ async function removeFromCart(productId) {
       method: 'DELETE',      
       credentials: 'include'    
     });    
-    const data = await res.json();    
-    cart = data.items || [];    
-    cartSubtotal = data.subtotal || 0;    
-    updateCartUI();  
+    if (!res.ok) {      
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      showToast(data?.error || 'Could not remove item from cart.');
+      return;
+    }
+    // Refresh from server-side cookie session cart (single source of truth)
+    await loadCart();
   } catch (err) {    
     console.error('Remove from cart failed:', err);    
     showToast('Could not reach the server. Please try again.');  
@@ -257,10 +305,9 @@ async function clearCart() {
     await fetch(`${API_BASE_URL}/cart`, { method: 'DELETE', credentials: 'include' });  
   } catch (err) {    
     console.error('Clear cart failed:', err);  
-  }  
-  cart = [];  
-  cartSubtotal = 0;  
-  updateCartUI();
+  }
+  // Refresh from server-side cookie session cart (single source of truth)
+  await loadCart();
 }
 
 /** Update cart badge count and sidebar contents */
@@ -339,9 +386,9 @@ function initCart() {
   document.getElementById('cartBtn')?.addEventListener('click', openCart);  
   document.getElementById('cartClose')?.addEventListener('click', closeCart);  
   document.getElementById('cartOverlay')?.addEventListener('click', closeCart);  
-  document.getElementById('cartCheckoutBtn')?.addEventListener('click', () => {    
+  document.getElementById('cartCheckoutBtn')?.addEventListener('click', async () => {    
     closeCart();    
-    openCheckout();  
+    await openCheckout();  
   });
 }
 
@@ -362,12 +409,14 @@ const SHIPPING_COST = 0;
  */
 async function buyNow(productId, quantity, name) {  
   await addToCart(productId, quantity, name);  
-  openCheckout();
+  await openCheckout();
 }
 
 /** Open checkout modal */
-function openCheckout() {  
+async function openCheckout() {  
   const modal = document.getElementById('checkoutModal');  
+  // Ensure server cart is the source of truth at checkout time
+  await loadCart();
   renderOrderSummary();  
   updatePaymentAmount();  
   modal.hidden = false;  
@@ -484,6 +533,8 @@ function getPaymentMethodLabel(value) {
  * payment gateway yet — only Cash on Delivery goes through for now. 
  */
 async function placeOrder(form) {  
+  // Ensure server cart is the source of truth before submission
+  await loadCart();
   if (!validateCheckoutForm(form)) {    
     showToast('Please fill in all required fields correctly.');    
     return;  
@@ -521,11 +572,8 @@ async function finalizeOrder(form, paymentMethod) {
       showToast(order.error || 'Could not place your order. Please try again.');      
       return;    
     }    
-    
-    // Local cart is now empty on the server too — sync the UI.    
-    cart = [];    
-    cartSubtotal = 0;    
-    updateCartUI();    
+    // Cart is cleared server-side — refresh from /cart as the source of truth.
+    await loadCart();
     sendOrderWhatsAppConfirmation(order, paymentMethod);    
     closeCheckout();    
     showOrderConfirmation(order, paymentMethod);    
@@ -670,57 +718,78 @@ function showToast(message, duration = 3000) {
 // PRODUCT GRID RENDERING
 // ==========================================
 
+let productsFetchSeq = 0;
+
 /**
- * Render product cards in the grid (fetches live data on first call)
+ * Render product cards in the grid.
+ * Always fetches fresh live data and overwrites LIVE_PRODUCTS on every call.
  */
 async function renderProducts() {
   const grid = document.getElementById('productGrid');
   const noResults = document.getElementById('noResults');
+  if (!grid) return;
 
-  // Fetch from the live backend once, then reuse the cached list for filtering
-  if (LIVE_PRODUCTS.length === 0) {
-    try {
-      grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Loading premium collections...</div>';
+  const fetchSeq = ++productsFetchSeq;
 
-      const response = await fetch(`${API_BASE_URL}/products`);
-      if (!response.ok) throw new Error('Failed to fetch products');
+  grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Loading premium collections...</div>';
+  if (noResults) noResults.hidden = true;
 
-      LIVE_PRODUCTS = await response.json();
-    } catch (error) {
-      console.error('Error fetching live products:', error);
-      grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red; padding: 2rem;">Unable to load items. Please try again later.</div>';
-      return;
-    }
-  }
+  try {
+    const response = await fetch(`${API_BASE_URL}/products`);
+    if (!response.ok) throw new Error('Failed to fetch products');
 
-  const products = filterProducts(activeCategory, searchQuery);
+    const data = await response.json();
+    const freshProducts = Array.isArray(data) ? data : (data?.products || data?.items || []);
 
-  if (!products.length) {
-    grid.innerHTML = '';
-    noResults.hidden = false;
+    // Discard stale responses when typing quickly.
+    if (fetchSeq !== productsFetchSeq) return;
+
+    // Always overwrite the live list to prevent ghost/removed products.
+    LIVE_PRODUCTS = freshProducts;
+  } catch (error) {
+    console.error('Error fetching live products:', error);
+    if (fetchSeq !== productsFetchSeq) return;
+    LIVE_PRODUCTS = [];
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red; padding: 2rem;">Unable to load items. Please try again later.</div>';
+    if (noResults) noResults.hidden = true;
     return;
   }
 
-  noResults.hidden = true;
+  const products = filterProducts(activeCategory, searchQuery)
+    .filter(p => getProductId(p));
+
+  if (!products.length) {
+    grid.innerHTML = '';
+    if (noResults) noResults.hidden = false;
+    return;
+  }
+
+  if (noResults) noResults.hidden = true;
 
   grid.innerHTML = products.map(product => {
-    const productId = product._id || product.id;
-    const mainImage = Array.isArray(product.images) ? product.images[0] : (product.image || '');
-    const sizesList = Array.isArray(product.sizes) ? product.sizes.join(', ') : 'Free Size';
+    const productId = getProductId(product);
+    const productIdStr = String(productId);
+    const images = normalizeProductImages(product);
+    const mainImage = images[0] || '';
+    const sizes = normalizeProductSizes(product);
+    const sizesList = sizes.join(', ');
+    const categoryLabel = getCategoryLabel(product);
 
     return `
-    <article class="product-card reveal" role="listitem" data-product-id="${productId}">
+    <article class="product-card reveal" role="listitem" data-product-id="${productIdStr}">
       <div class="product-card__image-wrap">
-        <img class="product-card__image" src="${mainImage}" alt="${product.name}" loading="lazy">
-        <span class="product-card__category">${product.categoryLabel || product.category}</span>
+        <img class="product-card__image" src="${mainImage}" alt="${product.name || ''}" loading="lazy">
+        <span class="product-card__category">${categoryLabel}</span>
       </div>
       <div class="product-card__body">
-        <h3 class="product-card__name">${product.name}</h3>
-        <p class="product-card__desc">${product.description}</p>
+        <h3 class="product-card__name">${product.name || ''}</h3>
+        <p class="product-card__desc">${product.description || ''}</p>
         <p class="product-card__sizes">Sizes: ${sizesList}</p>
         <div class="product-card__footer">
-          <span class="product-card__price">${formatPrice(product.price)}</span>
-          <button class="btn btn--secondary btn--sm" data-add-cart="${productId}">
+          <span class="product-card__price">${formatPrice(product.price ?? 0)}</span>
+          <button class="btn btn--secondary btn--sm"
+            data-add-cart="${productIdStr}"
+            data-product-name="${product.name || 'Item'}">
             Add to Cart
           </button>
         </div>
@@ -737,14 +806,14 @@ async function renderProducts() {
     });
   });
 
-  // Bind add-to-cart from card buttons
+  // Bind add-to-cart from card buttons (no reliance on cached object shape)
   grid.querySelectorAll('[data-add-cart]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const product = getProductById(btn.dataset.addCart);
-      if (product) {
-        addToCart(product._id || product.id, 1, product.name);
-      }
+      const productId = btn.dataset.addCart;
+      const name = btn.dataset.productName || 'Item';
+      if (!productId) return;
+      addToCart(productId, 1, name);
     });
   });
 
@@ -762,12 +831,10 @@ async function renderProducts() {
 function openProductModal(productId) {
   const product = getProductById(productId);
   if (!product) return;
-
-  // Normalize fields so the rest of this function works for both
-  // local PRODUCTS-style data and live MongoDB data
-  const productImages = Array.isArray(product.images) ? product.images : (product.image ? [product.image] : []);
-  const productSizes = Array.isArray(product.sizes) && product.sizes.length ? product.sizes : ['Free Size'];
-  const productPid = product._id || product.id;
+  const productImages = normalizeProductImages(product);
+  const productSizes = normalizeProductSizes(product);
+  const productPid = getProductId(product);
+  if (!productPid) return;
 
   currentProduct = product;
   selectedSize = productSizes[0];
@@ -790,7 +857,7 @@ function openProductModal(productId) {
       ` : ''}
     </div>
     <div class="product-detail__info">
-      <span class="product-detail__category">${product.categoryLabel || product.category}</span>
+      <span class="product-detail__category">${getCategoryLabel(product)}</span>
       <h2 class="product-detail__title" id="productModalTitle">${product.name}</h2>
       <p class="product-detail__price">${formatPrice(product.price)}</p>
       <p class="product-detail__desc">${product.description}</p>
@@ -856,13 +923,13 @@ function openProductModal(productId) {
 
   // Add to Cart
   document.getElementById('detailAddToCart')?.addEventListener('click', () => {
-    addToCart(productPid, selectedQuantity, product.name);
+    addToCart(String(productPid), selectedQuantity, product.name);
   });
   
   // Buy Now
   document.getElementById('detailBuyNow')?.addEventListener('click', () => {
     closeProductModal();
-    buyNow(productPid, selectedQuantity, product.name);
+    buyNow(String(productPid), selectedQuantity, product.name);
   });
 
 
@@ -998,11 +1065,9 @@ function updateActiveNavLink() {
     link.classList.toggle('active', link.dataset.section === current);
   });
 }
-
 // ==========================================
 // SEARCH & FILTERS
 // ==========================================
-
 /**
  * Initialize search and category filter controls
  */
@@ -1041,7 +1106,6 @@ function initSearchAndFilters() {
     });
   });
 }
-
 // ==========================================
 // CONTACT FORM
 // ==========================================
@@ -1074,7 +1138,6 @@ function initContactForm() {
         el.classList.remove('error');
       }
     });
-
     if (!valid) return;
 
     // Future backend integration:
@@ -1097,11 +1160,9 @@ function initContactForm() {
     field.addEventListener('input', () => field.classList.remove('error'));
   });
 }
-
 // ==========================================
 // SCROLL REVEAL ANIMATIONS
 // ==========================================
-
 /** Intersection Observer for reveal animations */
 let revealObserver;
 
@@ -1124,11 +1185,9 @@ function observeRevealElements() {
     revealObserver.observe(el);
   });
 }
-
 // ==========================================
 // APP INITIALIZATION
 // ==========================================
-
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initModals();
