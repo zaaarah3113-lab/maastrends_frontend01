@@ -1,7 +1,7 @@
 /* ── LIVE BACKEND CONFIG ──
    Your Express/Mongoose backend on Render. All admin auth requests
    (login, forgot-password OTP flow) go here. */
-var API_BASE = 'https://stackblitz-zentra-client-0.onrender.com';
+var API_BASE = 'https://stackblitz-zentra-client1.onrender.com';
 
 /* ── LIVE DATA STORES ── */
 var PRODUCTS = [];
