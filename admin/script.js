@@ -1,17 +1,21 @@
-/* ── LIVE BACKEND CONFIG ──
-   Your Express/Mongoose backend on Render. All admin auth requests
-   (login, forgot-password OTP flow) go here. */
-var API_BASE = 'https://stackblitz-zentra-client1.onrender.com';
+/* ── BACKEND CONFIG ── */
+var API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') 
+    ? 'http://localhost:5000' 
+    : 'https://stackblitz-zentra-client1.onrender.com';
 
 /* ── LIVE DATA STORES ── */
 var PRODUCTS = [];
 var ORDERS = [];
 var CUSTOMERS = [];
+var DELIVERY_CHARGES = [];
+var DEFAULT_DELIVERY_CHARGE = 0;
 var MONTHLY = [];
 var CATS = [];
 var TOP_PRODS = [];
+var ACTIVE_TAB = 'dashboard';
 
 var editingId = null;
+var editingDeliveryId = null;
 
 /** Helper to get auth headers for administrative writes */
 function getAuthHeaders() {
@@ -31,11 +35,14 @@ async function initAdmin(){
     fetchProducts(),
     fetchOrders(),
     fetchDashboardStats(),
-    fetchCustomers()
+    fetchCustomers(),
+    fetchDeliveryCharges(),
+    fetchDefaultDeliveryCharge()
   ]);
 
   renderDashboard();
   renderProdsTable(PRODUCTS);
+  renderDeliveryCharges(DELIVERY_CHARGES);
   renderOrders();
   renderReports();
   renderCustomers();
@@ -82,8 +89,8 @@ async function fetchDashboardStats() {
     var res = await fetch(API_BASE + '/api/admin/dashboard-stats', { headers: getAuthHeaders() });
     if (res.ok) {
       var stats = await res.json();
-      MONTHLY = stats.monthlyRevenue || [];
-      CATS = stats.categoryDistribution || [];
+      MONTHLY = stats.monthly || [];
+      CATS = stats.categories || [];
       TOP_PRODS = stats.topProducts || [];
     }
   } catch (err) {
@@ -103,13 +110,24 @@ function closeSidebar(){
 }
 
 function goTab(name, navEl){
+  ACTIVE_TAB = name;
   document.querySelectorAll('.tab-page').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  if(navEl) navEl.classList.add('active');
+  if(navEl) {
+    navEl.classList.add('active');
+  } else {
+    // Fallback for manual calls
+    document.querySelector(`.nav-item[onclick*="goTab('${name}'"]`)?.classList.add('active');
+  }
   closeSidebar();
-  var titles={dashboard:'Dashboard',products:'Products',orders:'Orders',reports:'Sales Reports',customers:'Customers'};
+  var titles={dashboard:'Dashboard',products:'Products',delivery:'Delivery Charges',orders:'Orders',reports:'Sales Reports',customers:'Customers'};
   document.getElementById('page-title').textContent=titles[name];
+  
+  if (name === 'delivery') {
+    fetchDeliveryCharges().then(() => renderDeliveryCharges(DELIVERY_CHARGES));
+    fetchDefaultDeliveryCharge();
+  }
 }
 
 /* ── DASHBOARD ── */
@@ -138,8 +156,8 @@ function renderDashboard(){
     <tbody>${dash5.map(o=>`<tr>
       <td style="font-weight:600">${o.orderNumber || o._id}</td>
       <td>${o.shipping?.fullName || 'Guest'}<br><span style="font-size:11px;color:var(--text-muted)">${o.shipping?.city || ''}</span></td>
-      <td style="font-weight:700;color:var(--green-dark)">₹${(o.totalAmount || 0).toLocaleString('en-IN')}</td>
-      <td><span class="badge badge-${(o.orderStatus || 'pending').toLowerCase()}">${o.orderStatus}</span></td>
+      <td style="font-weight:700;color:var(--green-dark)">₹${(o.grandTotal || o.totalAmount || 0).toLocaleString('en-IN')}</td>
+      <td><span class="badge badge-${(o.orderStatus || 'pending').toLowerCase().replace(/_/g,'-')}">${formatOrderStatus(o.orderStatus)}</span></td>
     </tr>`).join('')}</tbody>`;
 
   var maxSold = TOP_PRODS.length > 0 ? Math.max(...TOP_PRODS.map(p => p.sold || 1)) : 1;
@@ -152,6 +170,174 @@ function renderDashboard(){
     </div>`).join('');
 }
 
+function formatOrderStatus(status) {
+  if (!status) return 'Unknown';
+  return String(status).split('_').map(function(word) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
+}
+
+function deriveStockStatus(product) {
+  if (product.stockStatus) return product.stockStatus;
+  if (product.stock > 10) return 'In Stock';
+  if (product.stock > 0) return 'Low Stock';
+  return 'Out of Stock';
+}
+
+function stockQuantityFromStatus(status, existingStock) {
+  if (status === 'Out of Stock') return 0;
+  if (status === 'Low Stock') {
+    return existingStock > 0 && existingStock <= 10 ? existingStock : 5;
+  }
+  if (status === 'In Stock') {
+    return existingStock > 10 ? existingStock : 50;
+  }
+  return existingStock || 0;
+}
+
+async function fetchDeliveryCharges() {
+  try {
+    var res = await fetch(API_BASE + '/api/admin/delivery-charges', { headers: getAuthHeaders() });
+    if (res.ok) {
+      DELIVERY_CHARGES = await res.json();
+    }
+  } catch (err) {
+    console.error('Failed to fetch delivery charges:', err);
+  }
+}
+
+async function fetchDefaultDeliveryCharge() {
+  try {
+    var res = await fetch(API_BASE + '/api/admin/settings/default-delivery-charge', { headers: getAuthHeaders() });
+    if (res.ok) {
+      var data = await res.json();
+      DEFAULT_DELIVERY_CHARGE = data.defaultDeliveryCharge || 0;
+      var input = document.getElementById('default-delivery-charge');
+      if (input) input.value = DEFAULT_DELIVERY_CHARGE;
+    }
+  } catch (err) {
+    console.error('Failed to fetch default delivery charge:', err);
+  }
+}
+
+async function saveDefaultDeliveryCharge() {
+  var value = parseInt(document.getElementById('default-delivery-charge').value, 10);
+  if (Number.isNaN(value) || value < 0) {
+    showToast('Enter a valid default charge of 0 or more', 'error');
+    return;
+  }
+  try {
+    var res = await fetch(API_BASE + '/api/admin/settings/default-delivery-charge', {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ defaultDeliveryCharge: value })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save default charge.');
+    DEFAULT_DELIVERY_CHARGE = data.defaultDeliveryCharge;
+    showToast('Default delivery charge saved');
+  } catch (err) {
+    showToast(err.message || 'Failed to save default charge', 'error');
+  }
+}
+
+function renderDeliveryCharges(list) {
+  var tbody = document.getElementById('delivery-table-body');
+  var sub = document.getElementById('delivery-table-sub');
+  if (!tbody) return;
+  if (sub) sub.textContent = list.length + ' pincode entries';
+  tbody.innerHTML = list.map(function(entry) {
+    var updated = entry.updatedAt ? new Date(entry.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    return '<tr>' +
+      '<td style="font-weight:600">' + entry.pincode + '</td>' +
+      '<td>' + (entry.areaName || '—') + '</td>' +
+      '<td style="font-weight:700;color:var(--green-dark)">₹' + Number(entry.deliveryCharge).toLocaleString('en-IN') + '</td>' +
+      '<td style="color:var(--text-muted);font-size:12px">' + updated + '</td>' +
+      '<td><div class="action-btns">' +
+        '<button class="btn-edit" onclick="openDeliveryModal(\'' + entry._id + '\')">Edit</button>' +
+        '<button class="btn-del" onclick="deleteDeliveryCharge(\'' + entry._id + '\')">Delete</button>' +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
+
+function searchDeliveryCharges(q) {
+  var query = (q || '').trim();
+  if (!query) {
+    renderDeliveryCharges(DELIVERY_CHARGES);
+    return;
+  }
+  var list = DELIVERY_CHARGES.filter(function(entry) {
+    return String(entry.pincode).includes(query);
+  });
+  renderDeliveryCharges(list);
+}
+
+function openDeliveryModal(id) {
+  editingDeliveryId = id;
+  document.getElementById('dm-title').textContent = id ? 'Edit Delivery Charge' : 'Add Delivery Charge';
+  if (id) {
+    var entry = DELIVERY_CHARGES.find(function(x) { return x._id === id; });
+    document.getElementById('dm-pincode').value = entry.pincode;
+    document.getElementById('dm-area').value = entry.areaName || '';
+    document.getElementById('dm-charge').value = entry.deliveryCharge;
+  } else {
+    document.getElementById('dm-pincode').value = '';
+    document.getElementById('dm-area').value = '';
+    document.getElementById('dm-charge').value = '';
+  }
+  document.getElementById('delivery-modal').classList.add('open');
+}
+
+function closeDeliveryModal() {
+  document.getElementById('delivery-modal').classList.remove('open');
+}
+
+async function saveDeliveryCharge() {
+  var pincode = document.getElementById('dm-pincode').value.trim();
+  var areaName = document.getElementById('dm-area').value.trim();
+  var deliveryCharge = parseInt(document.getElementById('dm-charge').value, 10);
+  if (!pincode) { showToast('Pincode is required', 'error'); return; }
+  if (Number.isNaN(deliveryCharge) || deliveryCharge < 0) { showToast('Enter a valid delivery charge', 'error'); return; }
+
+  var payload = { pincode: pincode, areaName: areaName, deliveryCharge: deliveryCharge };
+  var url = API_BASE + '/api/admin/delivery-charges' + (editingDeliveryId ? '/' + editingDeliveryId : '');
+  var method = editingDeliveryId ? 'PUT' : 'POST';
+
+  try {
+    var res = await fetch(url, {
+      method: method,
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload)
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save delivery charge.');
+    showToast(editingDeliveryId ? 'Delivery charge updated' : 'Delivery charge added');
+    closeDeliveryModal();
+    await fetchDeliveryCharges();
+    renderDeliveryCharges(DELIVERY_CHARGES);
+  } catch (err) {
+    showToast(err.message || 'Failed to save delivery charge', 'error');
+  }
+}
+
+async function deleteDeliveryCharge(id) {
+  if (!confirm('Delete this delivery charge entry?')) return;
+  try {
+    var res = await fetch(API_BASE + '/api/admin/delivery-charges/' + id, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not delete entry.');
+    showToast('Delivery charge entry deleted');
+    await fetchDeliveryCharges();
+    renderDeliveryCharges(DELIVERY_CHARGES);
+  } catch (err) {
+    showToast(err.message || 'Failed to delete entry', 'error');
+  }
+}
+
 /* ── PRODUCTS ── */
 function renderProdsTable(list){
   document.getElementById('prod-table-sub').textContent=`${list.length} of ${PRODUCTS.length} products`;
@@ -159,8 +345,8 @@ function renderProdsTable(list){
   document.getElementById('prod-table-body').innerHTML=list.map(p=>{
     var mktPrice = p.mrp || p.price || 0;
     var disc = mktPrice > 0 ? Math.round((1 - p.price / mktPrice) * 100) : 0;
-    var stockStatus = p.stock > 10 ? 'In Stock' : p.stock > 0 ? 'Low Stock' : 'Out of Stock';
-    var stockClass = p.stock > 10 ? 'badge-in' : p.stock > 0 ? 'badge-low' : 'badge-out';
+    var stockStatus = deriveStockStatus(p);
+    var stockClass = stockStatus === 'In Stock' ? 'badge-in' : stockStatus === 'Low Stock' ? 'badge-low' : 'badge-out';
 
     return `<tr>
       <td><div style="display:flex;align-items:center;gap:12px"><img class="prod-thumb" src="${p.image}" alt="${p.name}"><div><div style="font-weight:500;font-size:13px">${p.name}</div><div style="font-size:11px;color:var(--text-muted)">${p.description?.substring(0, 30) || ''}...</div></div></div></td>
@@ -199,16 +385,9 @@ function openProdModal(id){
     document.getElementById('pm-fabric').value=p.fabric || '';
     document.getElementById('pm-care').value=p.care || '';
     document.getElementById('pm-desc').value=p.description || '';
+    // Set stock status dropdown from product data
+    document.getElementById('pm-stock').value = deriveStockStatus(p);
     document.getElementById('img-preview').innerHTML=`<img src="${p.image}" alt="">`;
-
-    // ── MAP NUMBER FROM DATABASE TO THE TEXT DROPDOWN ──
-    if (p.stock > 10) {
-      document.getElementById('pm-stock').value = 'In Stock';
-    } else if (p.stock > 0) {
-      document.getElementById('pm-stock').value = 'Low Stock';
-    } else {
-      document.getElementById('pm-stock').value = 'Out of Stock';
-    }
   } else {
     ['pm-name','pm-price','pm-mrp','pm-fabric','pm-care','pm-desc'].forEach(f=>document.getElementById(f).value='');
     document.getElementById('pm-stock').value = 'In Stock';
@@ -225,21 +404,18 @@ function previewImg(inp){
   }
 }
 
+// ----- FIXED: saveProd now logs payload and ensures stockStatus is sent -----
 async function saveProd(){
   var name=document.getElementById('pm-name').value.trim();
   var price=parseInt(document.getElementById('pm-price').value)||0;
   var mrp=parseInt(document.getElementById('pm-mrp').value)||price;
-  
-  // ── MAP TEXT DROPDOWN VALUE TO A DATABASE NUMBER ──
-  var stockInputValue = document.getElementById('pm-stock').value;
-  var stock = 0;
-  if (stockInputValue === 'In Stock') {
-    stock = 20; // Set to a high stock number
-  } else if (stockInputValue === 'Low Stock') {
-    stock = 5;  // Set to a low stock number
-  } else {
-    stock = 0;  // Out of stock
+  var stockStatus = document.getElementById('pm-stock').value; // "In Stock", "Low Stock", "Out of Stock"
+  var existingStock = 0;
+  if (editingId) {
+    var existing = PRODUCTS.find(function(x) { return x._id === editingId; });
+    existingStock = existing ? existing.stock : 0;
   }
+  var stock = stockQuantityFromStatus(stockStatus, existingStock);
   
   if(!name){showToast('Product name is required','error');return;}
   if(!price){showToast('Price is required','error');return;}
@@ -253,11 +429,15 @@ async function saveProd(){
     price: price,
     mrp: mrp,
     stock: stock,
+    stockStatus: stockStatus,
     description: document.getElementById('pm-desc').value,
     image: image,
     fabric: document.getElementById('pm-fabric').value,
     care: document.getElementById('pm-care').value
   };
+
+  // Debug: see what we're sending
+  console.log('Saving product payload:', payload);
 
   try {
     var url = API_BASE + '/api/products' + (editingId ? '/' + editingId : '');
@@ -275,6 +455,7 @@ async function saveProd(){
     showToast(editingId ? 'Product updated successfully' : 'Product added successfully');
     closeProdModal();
     
+    // Refresh application state components synchronously from cloud database
     await fetchProducts();
     await fetchDashboardStats();
     renderProdsTable(PRODUCTS);
@@ -284,6 +465,7 @@ async function saveProd(){
     showToast(err.message || 'Error occurred while saving product info.', 'error');
   }
 }
+
 async function deleteProd(id){
   if(!confirm('Are you sure you want to delete this product?'))return;
   try {
@@ -314,19 +496,21 @@ function renderOrders(){
   document.getElementById('orders-table-body').innerHTML=list.map(o=>{
     var itemsSummary = o.items ? o.items.map(i => `${i.name} (x${i.quantity})`).join(', ') : 'No description';
     var formattedDate = o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'}) : '';
+    var paymentBadge = o.paymentStatus === 'paid' ? 'badge-in' : o.paymentStatus === 'failed' ? 'badge-out' : 'badge-low';
     
     return `<tr>
       <td style="font-weight:600;color:var(--green-dark)">${o.orderNumber || o._id}</td>
       <td>${o.shipping?.fullName || 'Anonymous'}<br><span style="font-size:11px;color:var(--text-muted)">${o.shipping?.phone || ''}</span></td>
       <td><div style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${itemsSummary}">${itemsSummary}</div></td>
-      <td style="font-weight:700">₹${(o.totalAmount || 0).toLocaleString('en-IN')}</td>
+      <td style="font-weight:700">₹${(o.grandTotal || o.totalAmount || 0).toLocaleString('en-IN')}</td>
+      <td><span class="badge ${paymentBadge}">${(o.paymentStatus || 'pending').toUpperCase()}</span></td>
       <td style="color:var(--text-muted);font-size:12px">${formattedDate}</td>
       <td>
         <select onchange="updateOrderStatus('${o._id}',this.value)" style="padding:5px 10px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:white" >
-          ${['Processing','Shipped','Delivered','Cancelled'].map(s=>`<option ${o.orderStatus===s?'selected':''}>${s}</option>`).join('')}
+          ${['order_placed','awaiting_payment','processing','shipped','delivered','cancelled'].map(s=>`<option value="${s}" ${o.orderStatus===s?'selected':''}>${formatOrderStatus(s)}</option>`).join('')}
         </select>
       </td>
-      <td><button class="btn-view" onclick="alert('Order Details:\\nContact Name: ${o.shipping?.fullName}\\nAddress: ${o.shipping?.addressLine}, ${o.shipping?.city}\\nPayment Method: ${o.paymentMethod.toUpperCase()}')">View</button></td>
+      <td><button class="btn-view" onclick="alert('Order Details:\\nContact Name: ${o.shipping?.fullName}\\nAddress: ${o.shipping?.addressLine1}, ${o.shipping?.city}\\nPayment: ${o.paymentStatus} (${o.paymentMethod})\\nDelivery Charge: ₹${o.shippingFee || 0}')">View</button></td>
     </tr>`;
   }).join('');
 }
@@ -334,7 +518,7 @@ function renderOrders(){
 async function updateOrderStatus(id, status){
   try {
     var res = await fetch(API_BASE + '/api/orders/' + id + '/status', {
-      method: 'PATCH',
+      method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify({ orderStatus: status })
     });
@@ -415,7 +599,7 @@ function showToast(msg,type){
 }
 
 /* ── ESC ── */
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeProdModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeProdModal();closeDeliveryModal();}});
 
 async function resetPasswordByMobile(){
   var phone = prompt('Enter registered mobile number (10 digits):');
