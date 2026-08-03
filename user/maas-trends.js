@@ -4,19 +4,63 @@
  * Live data is fetched from the backend API (MongoDB via Render).
  */
 
-const API_BASE_URL = "https://stackblitz-zentra-client-0.onrender.com/api";
+const API_BASE_URL = "https://stackblitz-zentra-client1.onrender.com/api";
 
 /** Format price in Indian Rupees */
 function formatPrice(amount) {
-  return '₹' + amount.toLocaleString('en-IN');
+  const n = Number(amount ?? 0);
+  return '₹' + n.toLocaleString('en-IN');
 }
 
 /** Live products fetched from the backend database */
 let LIVE_PRODUCTS = [];
 
-/** Find product by ID (works with MongoDB _id or local id) */
+function getProductId(product) {
+  if (!product) return null;
+  return product._id ?? product.id ?? product.productId ?? null;
+}
+
+function normalizeProductImages(product) {
+  if (!product) return [];
+
+  const raw = Array.isArray(product.images)
+    ? product.images
+    : (product.image ? [product.image] : []);
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map(img => {
+      if (!img) return null;
+      if (typeof img === 'string') return img;
+      if (typeof img === 'object') {
+        return img.url || img.src || img.imageUrl || img.path || img.file || null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function normalizeProductSizes(product) {
+  if (product && Array.isArray(product.sizes) && product.sizes.length) return product.sizes;
+  return ['Free Size'];
+}
+
+function getCategoryLabel(product) {
+  if (!product) return 'Uncategorized';
+  if (typeof product.categoryLabel === 'string' && product.categoryLabel.trim()) return product.categoryLabel;
+  if (product.category) return String(product.category).replace(/_/g, ' ');
+  return 'Uncategorized';
+}
+
+/** Find product by ID (MongoDB _id + optional id/productId fallbacks) */
 function getProductById(id) {
-  return LIVE_PRODUCTS.find(p => p._id === id || p.id === id) || null;
+  const target = id == null ? null : String(id);
+  if (!target) return null;
+  return LIVE_PRODUCTS.find(p => {
+    const pid = getProductId(p);
+    return pid != null && String(pid) === target;
+  }) || null;
 }
 
 /** Filter products by category and search query */
@@ -30,10 +74,10 @@ function filterProducts(category, query) {
   if (query && query.trim()) {
     const q = query.trim().toLowerCase();
     filtered = filtered.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q) ||
-      (p.categoryLabel && p.categoryLabel.toLowerCase().includes(q)) ||
-      (p.category && p.category.replace(/_/g, ' ').includes(q))
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q) ||
+      ((p.categoryLabel || '').toString().toLowerCase().includes(q)) ||
+      ((p.category || '').toString().replace(/_/g, ' ').toLowerCase().includes(q))
     );
   }
 
@@ -91,44 +135,34 @@ function openWhatsAppCommunity() {
 /**
  * Build order confirmation message for WhatsApp notification
  * @param {Object} order - Order object
+ * @param {string} paymentMethod - Payment method label
  * @returns {string} Formatted order message
  */
-function buildOrderConfirmationMessage(order) {
+function buildOrderConfirmationMessage(order, paymentMethod) {
+  const s = order.shipping;
   const items = order.items.map(item =>
-    `• ${item.name} (Size: ${item.size}) × ${item.quantity} — ${formatPrice(item.price * item.quantity)}`
+    `• ${item.name} × ${item.quantity} — ${formatPrice(item.subtotal)}`
   ).join('\n');
-
-  const address = [
-    order.customer.houseNo,
-    order.customer.street,
-    order.customer.area,
-    order.customer.city,
-    order.customer.state,
-    order.customer.postalCode,
-    order.customer.country
-  ].filter(Boolean).join(', ');
-
+  const address = [s.addressLine1, s.addressLine2, s.city, s.state, s.pincode].filter(Boolean).join(', ');
+  
   return [
     `🛍️ *New Order — ${WhatsAppConfig.shopName}*`,
     ``,
-    `*Order ID:* ${order.orderId}`,
-    `*Date:* ${order.date}`,
+    `*Order ID:* ${order.orderNumber}`,
     ``,
     `*Items:*`,
     items,
     ``,
     `*Subtotal:* ${formatPrice(order.subtotal)}`,
-    `*Shipping:* ${formatPrice(order.shipping)}`,
-    `*Total:* ${formatPrice(order.total)}`,
+    `*Total:* ${formatPrice(order.grandTotal)}`,
     ``,
     `*Customer Details:*`,
-    `Name: ${order.customer.fullName}`,
-    `Phone: ${order.customer.mobile}`,
-    `Email: ${order.customer.email}`,
+    `Name: ${s.fullName}`,
+    `Phone: ${s.phone}`,
+    s.email ? `Email: ${s.email}` : '',
     `Address: ${address}`,
-    order.customer.landmark ? `Landmark: ${order.customer.landmark}` : '',
     ``,
-    `*Payment:* ${order.paymentMethod} — Confirmed ✅`
+    `*Payment:* ${getPaymentMethodLabel(paymentMethod)}`
   ].filter(line => line !== '').join('\n');
 }
 
@@ -136,34 +170,11 @@ function buildOrderConfirmationMessage(order) {
  * Trigger WhatsApp order confirmation workflow
  * Opens WhatsApp with order details — ready for backend webhook integration
  * @param {Object} order - Complete order object
+ * @param {string} paymentMethod - Payment method key
  */
-function sendOrderWhatsAppConfirmation(order) {
-  const message = buildOrderConfirmationMessage(order);
-
-  // Future backend integration point:
-  // await fetch('/api/orders/whatsapp-notify', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ orderId: order.orderId, message, customerPhone: order.customer.mobile })
-  // });
-
-  // For now, open WhatsApp with order summary (merchant receives notification)
+function sendOrderWhatsAppConfirmation(order, paymentMethod) {
+  const message = buildOrderConfirmationMessage(order, paymentMethod);
   window.open(getWhatsAppUrl(message), '_blank', 'noopener');
-
-  // Also prepare customer-facing confirmation message
-  const customerMessage = [
-    `Hi ${order.customer.fullName}! 🎉`,
-    ``,
-    `Your order *${order.orderId}* at ${WhatsAppConfig.shopName} has been confirmed!`,
-    `Total: ${formatPrice(order.total)}`,
-    ``,
-    `We'll process your order and update you on delivery.`,
-    `Thank you for shopping with us! 💚`
-  ].join('\n');
-
-  // Store for potential automated customer notification via backend
-  order.whatsappCustomerMessage = customerMessage;
-  order.whatsappMerchantMessage = message;
 }
 
 /**
@@ -189,671 +200,685 @@ function initWhatsApp() {
 }
 
 
-// ===== cart.js =====
-/**
- * Shopping Cart Module
- * Uses localStorage for persistence — no login required
+// ===== cart.js (LIVE BACKEND VERSION) =====
+/** * Shopping Cart Module 
+ * Backend is the source of truth (guest cookie session) — no localStorage. 
+ * `cart` holds server-shaped items: { product, name, image, price, stock, quantity, subtotal } 
  */
-
-const CART_STORAGE_KEY = 'maastrends_cart';
-
-/** @type {Array} */
 let cart = [];
+let cartSubtotal = 0;
 
-/**
- * Load cart from localStorage
- */
-function loadCart() {
-  try {
-    const stored = localStorage.getItem(CART_STORAGE_KEY);
-    cart = stored ? JSON.parse(stored) : [];
-  } catch {
-    cart = [];
-  }
+/** Load the cart from the backend (creates an empty guest cart if none exists) */
+async function loadCart() {  
+  try {    
+    const res = await fetch(`${API_BASE_URL}/cart`, { credentials: 'include' });    
+    const data = await res.json();    
+    cart = data.items || [];
+    cartSubtotal = data.subtotal || 0;
+  } catch (err) {    
+    console.error('Failed to load cart:', err);    
+    cart = [];    
+    cartSubtotal = 0;  
+  }  
   updateCartUI();
 }
 
-/**
- * Save cart to localStorage
+/** * Add a product to the cart (or increase its quantity) 
+ * @param {string} productId - Mongo _id of the product 
+ * @param {number} quantity 
+ * @param {string} [name] - used only for the toast message 
  */
-function saveCart() {
-  localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
-  updateCartUI();
-}
-
-/**
- * Add item to cart
- * @param {Object} item - { id, name, price, size, quantity, image }
- */
-function addToCart(item) {
-  const existing = cart.find(
-    c => c.id === item.id && c.size === item.size
-  );
-
-  if (existing) {
-    existing.quantity += item.quantity;
-  } else {
-    cart.push({ ...item });
+async function addToCart(productId, quantity = 1, name = 'Item') {  
+  try {    
+    const res = await fetch(`${API_BASE_URL}/cart/items`, {      
+      method: 'POST',      
+      credentials: 'include',      
+      headers: { 'Content-Type': 'application/json' },      
+      body: JSON.stringify({ productId, quantity })    
+    });    
+    if (!res.ok) {      
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      showToast(data?.error || 'Could not add item to cart.');
+      return;    
+    }    
+    // Refresh from server-side cookie session cart (single source of truth)
+    await loadCart();
+    showToast(`${name} added to cart`);  
+  } catch (err) {    
+    console.error('Add to cart failed:', err);    
+    showToast('Could not reach the server. Please try again.');  
   }
-
-  saveCart();
-  showToast(`${item.name} added to cart`);
 }
 
-/**
- * Remove item from cart by index
- * @param {number} index
- */
-function removeFromCart(index) {
-  cart.splice(index, 1);
-  saveCart();
+/** Set an item's quantity (0 removes it) */
+async function updateCartItemQty(productId, quantity) {  
+  try {    
+    const res = await fetch(`${API_BASE_URL}/cart/items/${productId}`, {      
+      method: 'PUT',      
+      credentials: 'include',      
+      headers: { 'Content-Type': 'application/json' },      
+      body: JSON.stringify({ quantity })    
+    });    
+    if (!res.ok) {      
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      showToast(data?.error || 'Could not update cart.');
+      return;    
+    }    
+    // Refresh from server-side cookie session cart (single source of truth)
+    await loadCart();
+  } catch (err) {    
+    console.error('Update cart failed:', err);    
+    showToast('Could not reach the server. Please try again.');  
+  }
 }
 
-/**
- * Get cart items
- * @returns {Array}
- */
-function getCartItems() {
-  return cart;
-}
-
-/**
- * Get cart total amount
- * @returns {number}
- */
-function getCartTotal() {
-  return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-}
-
-/**
- * Get total item count
- * @returns {number}
- */
-function getCartCount() {
-  return cart.reduce((sum, item) => sum + item.quantity, 0);
-}
-
-/**
- * Clear cart after successful order
- */
-function clearCart() {
-  cart = [];
-  saveCart();
-}
-
-/**
- * Update cart badge count and sidebar contents
- */
-function updateCartUI() {
-  const countEl = document.getElementById('cartCount');
-  const itemsEl = document.getElementById('cartItems');
-  const emptyEl = document.getElementById('cartEmpty');
-  const footerEl = document.getElementById('cartFooter');
-  const totalEl = document.getElementById('cartTotal');
-
-  const count = getCartCount();
-
-  if (countEl) {
-    countEl.textContent = count;
-    if (count > 0) {
-      countEl.classList.add('bump');
-      setTimeout(() => countEl.classList.remove('bump'), 300);
+/** Remove a single item from the cart */
+async function removeFromCart(productId) {  
+  try {    
+    const res = await fetch(`${API_BASE_URL}/cart/items/${productId}`, {      
+      method: 'DELETE',      
+      credentials: 'include'    
+    });    
+    if (!res.ok) {      
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      showToast(data?.error || 'Could not remove item from cart.');
+      return;
     }
+    // Refresh from server-side cookie session cart (single source of truth)
+    await loadCart();
+  } catch (err) {    
+    console.error('Remove from cart failed:', err);    
+    showToast('Could not reach the server. Please try again.');  
   }
+}
 
-  if (!itemsEl) return;
+function getCartItems() { return cart; }
+function getCartTotal() { return cartSubtotal; }
+function getCartCount() { return cart.reduce((sum, item) => sum + item.quantity, 0); }
 
-  if (cart.length === 0) {
-    emptyEl.hidden = false;
-    itemsEl.innerHTML = '';
-    footerEl.hidden = true;
-    return;
+/** Clear cart on the server (used after a successful checkout) */
+async function clearCart() {  
+  try {    
+    await fetch(`${API_BASE_URL}/cart`, { method: 'DELETE', credentials: 'include' });  
+  } catch (err) {    
+    console.error('Clear cart failed:', err);  
   }
+  // Refresh from server-side cookie session cart (single source of truth)
+  await loadCart();
+}
 
-  emptyEl.hidden = true;
-  footerEl.hidden = false;
-
-  itemsEl.innerHTML = cart.map((item, index) => `
-    <li class="cart-item">
-      <img class="cart-item__image" src="${item.image}" alt="${item.name}" loading="lazy">
-      <div class="cart-item__info">
-        <p class="cart-item__name">${item.name}</p>
-        <p class="cart-item__meta">Size: ${item.size} · Qty: ${item.quantity}</p>
-        <p class="cart-item__price">${formatPrice(item.price * item.quantity)}</p>
-        <button class="cart-item__remove" data-remove-index="${index}">Remove</button>
-      </div>
-    </li>
-  `).join('');
-
-  if (totalEl) {
-    totalEl.textContent = formatPrice(getCartTotal());
-  }
-
-  // Bind remove buttons
-  itemsEl.querySelectorAll('[data-remove-index]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      removeFromCart(parseInt(btn.dataset.removeIndex, 10));
-    });
+/** Update cart badge count and sidebar contents */
+function updateCartUI() {  
+  const countEl = document.getElementById('cartCount');  
+  const itemsEl = document.getElementById('cartItems');  
+  const emptyEl = document.getElementById('cartEmpty');  
+  const footerEl = document.getElementById('cartFooter');  
+  const totalEl = document.getElementById('cartTotal');  
+  const count = getCartCount();  
+  
+  if (countEl) {    
+    countEl.textContent = count;    
+    if (count > 0) {      
+      countEl.classList.add('bump');      
+      setTimeout(() => countEl.classList.remove('bump'), 300);    
+    }  
+  }  
+  
+  if (!itemsEl) return;  
+  
+  if (cart.length === 0) {    
+    emptyEl.hidden = false;    
+    itemsEl.innerHTML = '';    
+    footerEl.hidden = true;    
+    return;  
+  }  
+  
+  emptyEl.hidden = true;  
+  footerEl.hidden = false;  
+  itemsEl.innerHTML = cart.map(item => `    
+    <li class="cart-item">      
+      <img class="cart-item__image" src="${item.image}" alt="${item.name}" loading="lazy">      
+      <div class="cart-item__info">        
+        <p class="cart-item__name">${item.name}</p>        
+        <p class="cart-item__meta">Qty: ${item.quantity}</p>        
+        <p class="cart-item__price">${formatPrice(item.subtotal)}</p>        
+        <button class="cart-item__remove" data-remove-id="${item.product}">Remove</button>      
+      </div>    
+    </li>  
+  `).join('');  
+  
+  if (totalEl) totalEl.textContent = formatPrice(getCartTotal());  
+  
+  itemsEl.querySelectorAll('[data-remove-id]').forEach(btn => {    
+    btn.addEventListener('click', () => removeFromCart(btn.dataset.removeId));  
   });
 }
 
-/**
- * Open cart sidebar
- */
-function openCart() {
-  const sidebar = document.getElementById('cartSidebar');
-  const overlay = document.getElementById('cartOverlay');
-  sidebar.hidden = false;
-  overlay.hidden = false;
-  requestAnimationFrame(() => {
-    sidebar.classList.add('open');
-    overlay.classList.add('visible');
-  });
+function openCart() {  
+  const sidebar = document.getElementById('cartSidebar');  
+  const overlay = document.getElementById('cartOverlay');  
+  sidebar.hidden = false;  
+  overlay.hidden = false;  
+  requestAnimationFrame(() => {    
+    sidebar.classList.add('open');    
+    overlay.classList.add('visible');  
+  });  
   document.body.style.overflow = 'hidden';
 }
 
-/**
- * Close cart sidebar
- */
-function closeCart() {
-  const sidebar = document.getElementById('cartSidebar');
-  const overlay = document.getElementById('cartOverlay');
-  sidebar.classList.remove('open');
-  overlay.classList.remove('visible');
-  document.body.style.overflow = '';
-  setTimeout(() => {
-    sidebar.hidden = true;
-    overlay.hidden = true;
+function closeCart() {  
+  const sidebar = document.getElementById('cartSidebar');  
+  const overlay = document.getElementById('cartOverlay');  
+  sidebar.classList.remove('open');  
+  overlay.classList.remove('visible');  
+  document.body.style.overflow = '';  
+  setTimeout(() => {    
+    sidebar.hidden = true;    
+    overlay.hidden = true;  
   }, 300);
 }
 
-/**
- * Initialize cart event listeners
- */
-function initCart() {
-  loadCart();
-
-  document.getElementById('cartBtn')?.addEventListener('click', openCart);
-  document.getElementById('cartClose')?.addEventListener('click', closeCart);
-  document.getElementById('cartOverlay')?.addEventListener('click', closeCart);
-  document.getElementById('cartCheckoutBtn')?.addEventListener('click', () => {
-    closeCart();
-    openCheckout();
+function initCart() {  
+  loadCart();  
+  document.getElementById('cartBtn')?.addEventListener('click', openCart);  
+  document.getElementById('cartClose')?.addEventListener('click', closeCart);  
+  document.getElementById('cartOverlay')?.addEventListener('click', closeCart);  
+  document.getElementById('cartCheckoutBtn')?.addEventListener('click', async () => {    
+    closeCart();    
+    await openCheckout();  
   });
 }
 
 
-// ===== checkout.js =====
-/**
- * Checkout & Order Confirmation Module
+// ===== checkout.js (LIVE BACKEND VERSION) =====
+/** * Checkout & Order Confirmation Module 
+ * Checkout always goes through the server-side cart (/api/orders/checkout). 
+ * Razorpay is intentionally not wired yet (backend keys not decided) — only 
+ * Cash on Delivery is live for now; online methods show a "coming soon" toast. 
  */
 
-/** @type {Object|null} Current checkout item for Buy Now flow */
-let buyNowItem = null;
+/** Live delivery charge fetched from backend when pincode is entered */
+let checkoutDeliveryCharge = 0;
+let checkoutDeliveryMeta = { pincode: '', areaName: '', isDefault: true };
+let deliveryChargeRequestId = 0;
 
-/** Shipping cost */
-const SHIPPING_COST = 99;
-
-/**
- * Razorpay Key ID (publishable — safe to expose in client-side code).
- * Get yours from the Razorpay Dashboard → Account & Settings → API Keys.
- * Use the rzp_test_... key while testing, then switch to rzp_live_... to go live.
- * NEVER put your Key Secret anywhere in this file — it is not needed client-side.
- */
-const RAZORPAY_KEY_ID = 'rzp_test_XXXXXXXXXXXXXX'; // TODO: replace with your real Razorpay Key ID
-
-/** Maps our payment method values to Razorpay's checkout "method" pre-selection */
-const RAZORPAY_METHOD_MAP = {
-  upi: 'upi',
-  card: 'card',
-  emi: 'emi',
-  netbanking: 'netbanking'
-};
-
-/**
- * Generate unique order ID
- * @returns {string}
- */
-function generateOrderId() {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `MT-${timestamp}-${random}`;
-}
-
-/**
- * Open checkout modal
- * @param {Object|null} singleItem - For Buy Now, pass a single cart item
- */
-function openCheckout(singleItem) {
-  buyNowItem = singleItem || null;
-  const modal = document.getElementById('checkoutModal');
-  renderOrderSummary();
-  updatePaymentAmount();
-  modal.hidden = false;
-  document.body.style.overflow = 'hidden';
-}
-
-/**
- * Close checkout modal
- */
-function closeCheckout() {
-  const modal = document.getElementById('checkoutModal');
-  modal.hidden = true;
-  buyNowItem = null;
-  if (!isAnyModalOpen()) {
-    document.body.style.overflow = '';
-  }
-}
-
-/**
- * Get items for current checkout session
- * @returns {Array}
- */
-function getCheckoutItems() {
-  return buyNowItem ? [buyNowItem] : getCartItems();
-}
-
-/**
- * Render order summary in checkout modal
- */
-function renderOrderSummary() {
-  const summaryEl = document.getElementById('orderSummary');
-  const items = getCheckoutItems();
-
-  if (!items.length) {
-    summaryEl.innerHTML = '<p>No items in order.</p>';
+/** Fetch delivery charge for a pincode from the backend lookup table */
+async function fetchDeliveryCharge(pincode) {
+  const normalized = String(pincode || '').trim();
+  if (!/^\d{6}$/.test(normalized)) {
+    checkoutDeliveryCharge = 0;
+    checkoutDeliveryMeta = { pincode: normalized, areaName: '', isDefault: true };
+    renderOrderSummary();
+    updatePaymentAmount();
     return;
   }
 
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const total = subtotal + SHIPPING_COST;
+  const requestId = ++deliveryChargeRequestId;
+  try {
+    const res = await fetch(`${API_BASE_URL}/delivery-charge?pincode=${encodeURIComponent(normalized)}`);
+    const data = await res.json();
+    if (requestId !== deliveryChargeRequestId) return;
+    if (!res.ok) throw new Error(data.error || 'Could not fetch delivery charge');
 
-  const itemsHtml = items.map(item => `
-    <div class="order-summary__item">
-      <div>
-        <div class="order-summary__item-name">${item.name}</div>
-        <div class="order-summary__item-meta">Size: ${item.size} · Qty: ${item.quantity}</div>
-      </div>
-      <span>${formatPrice(item.price * item.quantity)}</span>
-    </div>
-  `).join('');
+    checkoutDeliveryCharge = Number(data.deliveryCharge) || 0;
+    checkoutDeliveryMeta = {
+      pincode: data.pincode,
+      areaName: data.areaName || '',
+      isDefault: !!data.isDefault,
+    };
+  } catch (err) {
+    if (requestId !== deliveryChargeRequestId) return;
+    console.error('Delivery charge lookup failed:', err);
+    checkoutDeliveryCharge = 0;
+    checkoutDeliveryMeta = { pincode: normalized, areaName: '', isDefault: true };
+  }
 
-  summaryEl.innerHTML = `
-    ${itemsHtml}
-    <div class="order-summary__row">
-      <span>Subtotal</span>
-      <span>${formatPrice(subtotal)}</span>
-    </div>
-    <div class="order-summary__row">
-      <span>Shipping</span>
-      <span>${formatPrice(SHIPPING_COST)}</span>
-    </div>
-    <div class="order-summary__total">
-      <span>Total</span>
-      <span>${formatPrice(total)}</span>
-    </div>
+  renderOrderSummary();
+  updatePaymentAmount();
+}
+
+function getCheckoutDeliveryCharge() {
+  return checkoutDeliveryCharge;
+}
+
+function getCheckoutGrandTotal() {
+  return getCartTotal() + getCheckoutDeliveryCharge();
+}
+
+/** * "Buy Now" from the product detail modal: add the item to the real cart, 
+ * then open checkout. (The backend has no separate single-item checkout — 
+ * checkout always reads the server cart — so Buy Now just fast-tracks into it.) 
+ */
+async function buyNow(productId, quantity, name) {  
+  await addToCart(productId, quantity, name);  
+  await openCheckout();
+}
+
+/** Open checkout modal */
+async function openCheckout() {  
+  const modal = document.getElementById('checkoutModal');  
+  await loadCart();
+  checkoutDeliveryCharge = 0;
+  checkoutDeliveryMeta = { pincode: '', areaName: '', isDefault: true };
+  const pincodeField = document.getElementById('postalCode');
+  if (pincodeField && pincodeField.value.trim()) {
+    await fetchDeliveryCharge(pincodeField.value.trim());
+  } else {
+    renderOrderSummary();  
+    updatePaymentAmount();
+  }
+  modal.hidden = false;  
+  document.body.style.overflow = 'hidden';
+}
+
+/** Close checkout modal */
+function closeCheckout() {  
+  const modal = document.getElementById('checkoutModal');  
+  modal.hidden = true;  
+  if (!isAnyModalOpen()) {    
+    document.body.style.overflow = '';  
+  }
+}
+
+/** Render order summary in checkout modal, from the live cart */
+function renderOrderSummary() {  
+  const summaryEl = document.getElementById('orderSummary');  
+  const items = getCartItems();  
+  if (!items.length) {    
+    summaryEl.innerHTML = '<p>No items in order.</p>';    
+    return;  
+  }  
+  const subtotal = getCartTotal();  
+  const deliveryCharge = getCheckoutDeliveryCharge();
+  const total = getCheckoutGrandTotal();
+  const deliveryLabel = deliveryCharge > 0
+    ? formatPrice(deliveryCharge)
+    : (checkoutDeliveryMeta.pincode ? 'Free' : 'Enter pincode');
+  const deliveryNote = checkoutDeliveryMeta.areaName
+    ? ` (${checkoutDeliveryMeta.areaName})`
+    : (checkoutDeliveryMeta.isDefault && checkoutDeliveryMeta.pincode ? ' (default rate)' : '');
+  const itemsHtml = items.map(item => `    
+    <div class="order-summary__item">      
+      <div>        
+        <div class="order-summary__item-name">${item.name}</div>        
+        <div class="order-summary__item-meta">Qty: ${item.quantity}</div>      
+      </div>      
+      <span>${formatPrice(item.subtotal)}</span>    
+    </div>  
+  `).join('');  
+  summaryEl.innerHTML = `    
+    ${itemsHtml}    
+    <div class="order-summary__row">      
+      <span>Subtotal</span>      
+      <span>${formatPrice(subtotal)}</span>    
+    </div>    
+    <div class="order-summary__row">      
+      <span>Delivery${deliveryNote}</span>      
+      <span>${deliveryLabel}</span>    
+    </div>    
+    <div class="order-summary__total">      
+      <span>Total</span>      
+      <span>${formatPrice(total)}</span>    
+    </div>  
   `;
 }
 
-/**
- * Update the "Proceed to Pay" button amount + label based on selected method
- */
-function updatePaymentAmount() {
-  const items = getCheckoutItems();
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const total = subtotal + SHIPPING_COST;
-  const amountEl = document.getElementById('placeOrderAmount');
-  if (amountEl) amountEl.textContent = formatPrice(total);
+function updatePaymentAmount() {  
+  const total = getCheckoutGrandTotal();  
+  const amountEl = document.getElementById('placeOrderAmount');  
+  if (amountEl) amountEl.textContent = formatPrice(total);  
   updatePlaceOrderButtonLabel();
 }
 
-/**
- * Swap the submit button's leading text depending on whether the
- * selected method is an online payment or Cash on Delivery
- */
-function updatePlaceOrderButtonLabel() {
-  const btn = document.getElementById('placeOrderBtn');
-  const amountEl = document.getElementById('placeOrderAmount');
-  if (!btn || !amountEl) return;
-  const selected = document.querySelector('input[name="paymentMethod"]:checked')?.value || 'upi';
-  const prefix = selected === 'cod' ? 'Place Order — Pay on Delivery ' : 'Proceed to Pay ';
+function updatePlaceOrderButtonLabel() {  
+  const btn = document.getElementById('placeOrderBtn');  
+  const amountEl = document.getElementById('placeOrderAmount');  
+  if (!btn || !amountEl) return;  
+  const selected = document.querySelector('input[name="paymentMethod"]:checked')?.value || 'cod';  
+  const prefix = selected === 'cod' ? 'Place Order — Pay on Delivery ' : 'Proceed to Pay ';  
   btn.childNodes[0].textContent = prefix;
 }
 
-/**
- * Validate checkout form fields
- * @param {HTMLFormElement} form
- * @returns {boolean}
- */
-function validateCheckoutForm(form) {
-  let valid = true;
-  const requiredFields = form.querySelectorAll('[required]');
-
-  requiredFields.forEach(field => {
-    if (!field.value.trim()) {
-      field.classList.add('error');
-      valid = false;
-    } else {
-      field.classList.remove('error');
-    }
-  });
-
-  // Email validation
-  const email = form.querySelector('#email');
-  if (email && email.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
-    email.classList.add('error');
-    valid = false;
-  }
-
-  // Mobile validation (basic)
-  const mobile = form.querySelector('#mobile');
-  if (mobile && mobile.value && !/^[\d\s+\-()]{10,15}$/.test(mobile.value)) {
-    mobile.classList.add('error');
-    valid = false;
-  }
-
+function validateCheckoutForm(form) {  
+  let valid = true;  
+  const requiredFields = form.querySelectorAll('[required]');  
+  requiredFields.forEach(field => {    
+    if (!field.value.trim()) {      
+      field.classList.add('error');      
+      valid = false;    
+    } else {      
+      field.classList.remove('error');    
+    }  
+  });  
+  const email = form.querySelector('#email');  
+  if (email && email.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {    
+    email.classList.add('error');    
+    valid = false;  
+  }  
+  const mobile = form.querySelector('#mobile');  
+  if (mobile && mobile.value && !/^[\d\s+\-()]{10,15}$/.test(mobile.value)) {    
+    mobile.classList.add('error');    
+    valid = false;  
+  }  
   return valid;
 }
 
-/**
- * Collect customer details from form
- * @param {HTMLFormElement} form
- * @returns {Object}
- */
-function collectCustomerDetails(form) {
-  const fd = new FormData(form);
-  return {
-    fullName: fd.get('fullName'),
-    mobile: fd.get('mobile'),
-    email: fd.get('email'),
-    houseNo: fd.get('houseNo'),
-    street: fd.get('street'),
-    area: fd.get('area'),
-    city: fd.get('city'),
-    state: fd.get('state'),
-    postalCode: fd.get('postalCode'),
-    country: fd.get('country'),
-    landmark: fd.get('landmark') || ''
+/** Collect customer details and map them to the backend's `shipping` shape */
+function collectShippingDetails(form) {  
+  const fd = new FormData(form);  
+  return {    
+    fullName: fd.get('fullName'),    
+    phone: fd.get('mobile'),    
+    email: fd.get('email') || '',    
+    addressLine1: [fd.get('houseNo'), fd.get('street')].filter(Boolean).join(', '),    
+    addressLine2: [fd.get('area'), fd.get('landmark')].filter(Boolean).join(', '),    
+    city: fd.get('city'),    
+    state: fd.get('state'),    
+    pincode: fd.get('postalCode'),  
   };
 }
 
-/**
- * Get payment method label
- * @param {string} value
- * @returns {string}
- */
-function getPaymentMethodLabel(value) {
-  const labels = {
-    upi: 'UPI',
-    card: 'Credit / Debit Card',
-    emi: 'EMI',
-    netbanking: 'Net Banking',
-    cod: 'Cash on Delivery'
-  };
+function getPaymentMethodLabel(value) {  
+  const labels = { cod: 'Cash on Delivery', upi: 'UPI', card: 'Credit / Debit Card', emi: 'EMI', netbanking: 'Net Banking' };  
   return labels[value] || value;
 }
 
-/**
- * Process order placement: validates the form, builds the order object,
- * then either sends the customer to Razorpay (online methods) or
- * finalizes the order immediately (Cash on Delivery)
- * @param {HTMLFormElement} form
+/** * Validate the form, then submit checkout straight to the backend. 
+ * Online payment methods (UPI/Card/EMI/Net Banking) aren't wired to a 
+ * payment gateway yet — only Cash on Delivery goes through for now. 
  */
-function placeOrder(form) {
-  if (!validateCheckoutForm(form)) {
-    showToast('Please fill in all required fields correctly.');
-    return;
+async function placeOrder(form) {  
+  await loadCart();
+  if (!validateCheckoutForm(form)) {    
+    showToast('Please fill in all required fields correctly.');    
+    return;  
+  }  
+  const items = getCartItems();  
+  if (!items.length) {    
+    showToast('Your cart is empty.');    
+    return;  
   }
 
-  const items = getCheckoutItems();
-  if (!items.length) {
-    showToast('Your cart is empty.');
+  const pincode = form.querySelector('#postalCode')?.value?.trim();
+  if (!pincode) {
+    showToast('Please enter your postal code.');
     return;
   }
+  await fetchDeliveryCharge(pincode);
 
-  const customer = collectCustomerDetails(form);
-  const paymentMethod = form.querySelector('input[name="paymentMethod"]:checked')?.value || 'upi';
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-
-  const order = {
-    orderId: generateOrderId(),
-    date: new Date().toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    }),
-    items: items.map(item => ({ ...item })),
-    customer,
-    paymentMethodKey: paymentMethod,
-    paymentMethod: getPaymentMethodLabel(paymentMethod),
-    subtotal,
-    shipping: SHIPPING_COST,
-    total: subtotal + SHIPPING_COST,
-    status: paymentMethod === 'cod' ? 'confirmed' : 'pending'
-  };
-
+  const paymentMethod = form.querySelector('input[name="paymentMethod"]:checked')?.value || 'cod';  
   if (paymentMethod === 'cod') {
-    finalizeOrder(order, form);
-  } else {
-    payWithRazorpay(order, form);
+    await finalizeOrder(form, paymentMethod);
+    return;
   }
+  await startRazorpayCheckout(form, paymentMethod);
 }
 
-/**
- * Open Razorpay's secure checkout for online payment methods
- * (UPI, Card, EMI, Net Banking). Finalizes the order only after
- * Razorpay confirms a successful payment.
- * @param {Object} order
- * @param {HTMLFormElement} form
- */
-function payWithRazorpay(order, form) {
-  if (typeof Razorpay === 'undefined') {
-    showToast('Payment gateway failed to load. Check your connection and try again.');
-    return;
+/** Poll backend until webhook marks the order as paid */
+async function pollPaymentStatus(orderId, maxAttempts = 30, intervalMs = 2000) {
+  showOrderStatusUI('Confirming Payment...', 'Please wait while we verify your transaction.', true);
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payment-status`);
+      const data = await res.json();
+      if (res.ok && data.paid) {
+        return data;
+      }
+    } catch (e) {
+      console.error('Polling error:', e);
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
+  
+  hideOrderStatusUI();
+  throw new Error('Payment confirmation timed out. If amount was deducted, contact support with your order ID.');
+}
 
+function showOrderStatusUI(title, message, showLoader = false) {
+  let overlay = document.getElementById('orderStatusOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'orderStatusOverlay';
+    overlay.className = 'order-status-overlay';
+    document.body.appendChild(overlay);
+  }
+  
+  overlay.innerHTML = `
+    <div class="order-status-box">
+      ${showLoader ? '<div class="loader"></div>' : '<div class="icon">✅</div>'}
+      <h2>${title}</h2>
+      <p>${message}</p>
+    </div>
+  `;
+  overlay.style.display = 'flex';
+}
+
+function hideOrderStatusUI() {
+  const overlay = document.getElementById('orderStatusOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function startRazorpayCheckout(form, paymentMethod) {
   const btn = document.getElementById('placeOrderBtn');
   if (btn) btn.disabled = true;
+  const shipping = collectShippingDetails(form);
 
-  const options = {
-    key: RAZORPAY_KEY_ID,
-    amount: Math.round(order.total * 100), // amount in paise
-    currency: 'INR',
-    name: 'Maas Trends',
-    description: `Order ${order.orderId} — ${order.items.length} item(s)`,
-    method: RAZORPAY_METHOD_MAP[order.paymentMethodKey] || undefined,
-    prefill: {
-      name: order.customer.fullName,
-      email: order.customer.email,
-      contact: order.customer.mobile
-    },
-    notes: {
-      orderId: order.orderId
-    },
-    theme: { color: '#0F4C4A' },
-    handler: function (response) {
-      order.status = 'paid';
-      order.razorpayPaymentId = response.razorpay_payment_id;
-      finalizeOrder(order, form);
-    },
-    modal: {
-      ondismiss: function () {
-        if (btn) btn.disabled = false;
-        showToast('Payment cancelled. Your order has not been placed yet.');
-      }
-    }
-  };
-
-  const rzp = new Razorpay(options);
-  rzp.on('payment.failed', function (response) {
-    if (btn) btn.disabled = false;
-    showToast('Payment failed: ' + (response.error?.description || 'please try again.'));
-  });
-  rzp.open();
-}
-
-/**
- * Persist the order, send the WhatsApp confirmation, clear the cart
- * and show the on-screen confirmation. Runs after a successful
- * payment (or immediately for Cash on Delivery).
- * @param {Object} order
- * @param {HTMLFormElement} form
- */
-function finalizeOrder(order, form) {
-  const btn = document.getElementById('placeOrderBtn');
-  if (btn) btn.disabled = false;
-
-  // Future backend integration point:
-  // const response = await fetch('/api/orders', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify(order)
-  // });
-
-  // Store order locally for reference
   try {
-    const orders = JSON.parse(localStorage.getItem('maastrends_orders') || '[]');
-    orders.push(order);
-    localStorage.setItem('maastrends_orders', JSON.stringify(orders));
-  } catch { /* silent */ }
+    const res = await fetch(`${API_BASE_URL}/orders/razorpay/create`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shipping, notes: '' }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Could not start online payment.');
+      if (btn) btn.disabled = false;
+      return;
+    }
 
-  // Trigger WhatsApp confirmation
-  sendOrderWhatsAppConfirmation(order);
+    if (typeof Razorpay === 'undefined') {
+      showToast('Payment gateway failed to load. Please refresh and try again.');
+      if (btn) btn.disabled = false;
+      return;
+    }
 
-  // Clear cart if not buy-now-only
-  if (!buyNowItem) {
-    clearCart();
+    const options = {
+      key: data.keyId,
+      amount: data.amountPaise,
+      currency: data.currency || 'INR',
+      name: 'Maas Trends',
+      description: `Order ${data.orderNumber}`,
+      order_id: data.razorpayOrderId,
+      prefill: {
+        name: shipping.fullName,
+        contact: shipping.phone,
+        email: shipping.email || '',
+      },
+      theme: { color: '#0d5c45' },
+      handler: async function (response) {
+        try {
+          // Success callback from Razorpay popup
+          // Note: We don't mark as paid here. We poll our backend which waits for the webhook.
+          const orderData = await pollPaymentStatus(data.orderId);
+          
+          await loadCart();
+          closeCheckout();
+          hideOrderStatusUI();
+          showOrderConfirmation(orderData, paymentMethod, true);
+          form.reset();
+          document.getElementById('country').value = 'India';
+        } catch (err) {
+          console.error(err);
+          showToast(err.message || 'Payment received but confirmation is pending.');
+          hideOrderStatusUI();
+        }
+      },
+      modal: {
+        ondismiss: function () {
+          showToast('Payment cancelled.');
+          if (btn) btn.disabled = false;
+        },
+      },
+    };
+
+    const rzp = new Razorpay(options);
+    rzp.on('payment.failed', function (response) {
+      console.error('Razorpay payment failed:', response.error);
+      showToast(response.error?.description || 'Payment failed. Please try again.');
+      if (btn) btn.disabled = false;
+    });
+    rzp.open();
+  } catch (err) {
+    console.error('Razorpay checkout failed:', err);
+    showToast('Could not reach the payment server. Please try again.');
+    if (btn) btn.disabled = false;
   }
-  buyNowItem = null;
-
-  closeCheckout();
-  showOrderConfirmation(order);
-  form.reset();
-  document.getElementById('country').value = 'India';
 }
 
-/**
- * Show order confirmation modal
- * @param {Object} order
+/** * Submit the order to the real backend. The server re-reads the cart, 
+ * re-validates price/stock, and creates the Order — nothing here is trusted 
+ * client-side except the shipping form. 
  */
-function showOrderConfirmation(order) {
-  const modal = document.getElementById('confirmationModal');
-  const content = document.getElementById('confirmationContent');
+async function finalizeOrder(form, paymentMethod) {  
+  const btn = document.getElementById('placeOrderBtn');  
+  if (btn) btn.disabled = true;  
+  const shipping = collectShippingDetails(form);  
+  try {    
+    const res = await fetch(`${API_BASE_URL}/orders/checkout`, {      
+      method: 'POST',      
+      credentials: 'include',      
+      headers: { 'Content-Type': 'application/json' },      
+      body: JSON.stringify({ shipping, paymentMethod })    
+    });    
+    const order = await res.json();    
+    if (!res.ok) {      
+      showToast(order.error || 'Could not place your order. Please try again.');      
+      return;    
+    }    
+    // Cart is cleared server-side — refresh from /cart as the source of truth.
+    await loadCart();
+    sendOrderWhatsAppConfirmation(order, paymentMethod);    
+    closeCheckout();    
+    showOrderConfirmation(order, paymentMethod);    
+    form.reset();    
+    document.getElementById('country').value = 'India';  
+  } catch (err) {    
+    console.error('Checkout failed:', err);    
+    showToast('Could not reach the server. Please check your connection and try again.');  
+  } finally {    
+    if (btn) btn.disabled = false;  
+  }
+}
 
-  const address = [
-    order.customer.houseNo,
-    order.customer.street,
-    order.customer.area,
-    order.customer.city,
-    order.customer.state,
-    order.customer.postalCode,
-    order.customer.country
-  ].filter(Boolean).join(', ');
-
-  const itemsHtml = order.items.map(item =>
-    `<li>${item.name} — Size: ${item.size}, Qty: ${item.quantity} — ${formatPrice(item.price * item.quantity)}</li>`
-  ).join('');
-
-  content.innerHTML = `
-    <div class="confirmation__icon">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path d="M20 6L9 17l-5-5"/>
-      </svg>
-    </div>
-    <h2 class="confirmation__title">Order Successful!</h2>
-    <p class="confirmation__subtitle">Thank you for shopping with Maas Trends</p>
-
-    <div class="confirmation__whatsapp-msg">
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-      </svg>
-      <p>Your order has been placed successfully. You will receive a WhatsApp confirmation message shortly.</p>
-    </div>
-
-    <div class="confirmation__section">
-      <h4>Order ID</h4>
-      <p class="confirmation__order-id">${order.orderId}</p>
-    </div>
-
-    <div class="confirmation__section">
-      <h4>Order Summary</h4>
-      <ul>${itemsHtml}</ul>
-      <p style="margin-top: 0.5rem; font-weight: 600;">Total: ${formatPrice(order.total)} (incl. shipping)</p>
-      <p>Payment: ${order.paymentMethod} — ${order.paymentMethodKey === 'cod' ? 'To be collected on delivery' : 'Paid'}${order.razorpayPaymentId ? ` (Ref: ${order.razorpayPaymentId})` : ''}</p>
-    </div>
-
-    <div class="confirmation__section">
-      <h4>Delivery Details</h4>
-      <p><strong>${order.customer.fullName}</strong></p>
-      <p>${order.customer.mobile} · ${order.customer.email}</p>
-      <p>${address}</p>
-      ${order.customer.landmark ? `<p>Landmark: ${order.customer.landmark}</p>` : ''}
-    </div>
-
-    <button class="btn btn--primary btn--full" data-close-modal style="margin-top: 1rem;">
-      Continue Shopping
-    </button>
-  `;
-
-  modal.hidden = false;
+/** Show order confirmation modal, using the real Order document from the backend */
+function showOrderConfirmation(order, paymentMethod, isOnlinePaid = false) {  
+  const modal = document.getElementById('confirmationModal');  
+  const content = document.getElementById('confirmationContent');  
+  const s = order.shipping;  
+  const address = [s.addressLine1, s.addressLine2, s.city, s.state, s.pincode].filter(Boolean).join(', ');  
+  const itemsHtml = (order.items || []).map(item =>    
+    `<li>${item.name} — Qty: ${item.quantity} — ${formatPrice(item.subtotal ?? (item.price * item.quantity))}</li>`  
+  ).join('');  
+  const paymentLine = isOnlinePaid || order.paymentStatus === 'paid'
+    ? `Payment: ${getPaymentMethodLabel(paymentMethod)} — Paid`
+    : `Payment: ${getPaymentMethodLabel(paymentMethod)} — To be collected on delivery`;
+  const title = isOnlinePaid || order.paymentStatus === 'paid'
+    ? 'Payment Successful, Order Placed'
+    : 'Order Successful!';
+  content.innerHTML = `    
+    <div class="confirmation__icon">      
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">        
+        <path d="M20 6L9 17l-5-5"/>      
+      </svg>    
+    </div>    
+    <h2 class="confirmation__title">${title}</h2>    
+    <p class="confirmation__subtitle">Thank you for shopping with Maas Trends</p>    
+    <div class="confirmation__section">      
+      <h4>Order ID</h4>      
+      <p class="confirmation__order-id">${order.orderNumber}</p>    
+    </div>    
+    <div class="confirmation__section">      
+      <h4>Order Summary</h4>      
+      <ul>${itemsHtml}</ul>      
+      <p style="margin-top: 0.5rem;">Subtotal: ${formatPrice(order.subtotal ?? getCartTotal())}</p>
+      <p>Delivery: ${formatPrice(order.shippingFee ?? getCheckoutDeliveryCharge())}</p>
+      <p style="font-weight: 600;">Total: ${formatPrice(order.grandTotal ?? getCheckoutGrandTotal())}</p>      
+      <p>${paymentLine}</p>    
+    </div>    
+    <div class="confirmation__section">      
+      <h4>Delivery Details</h4>      
+      <p><strong>${s.fullName}</strong></p>      
+      <p>${s.phone}${s.email ? ' · ' + s.email : ''}</p>      
+      <p>${address}</p>    
+    </div>    
+    <button class="btn btn--primary btn--full" data-close-modal style="margin-top: 1rem;">      
+      Continue Shopping    
+    </button>  
+  `;  
+  modal.hidden = false;  
   document.body.style.overflow = 'hidden';
 }
 
-/**
- * Check if any modal is currently open
- * @returns {boolean}
- */
-function isAnyModalOpen() {
+function isAnyModalOpen() {  
   return document.querySelectorAll('.modal:not([hidden])').length > 0;
 }
 
-/**
- * Initialize the Flipkart/Amazon-style payment method accordion:
- * clicking or pressing Enter/Space on a row selects that method,
- * expands its panel, and collapses any other open panel.
- */
-function initPaymentAccordion() {
-  const accordion = document.getElementById('paymentAccordion');
-  if (!accordion) return;
-  const items = accordion.querySelectorAll('.payment-item');
-
-  function selectItem(item) {
-    items.forEach(i => {
-      const isTarget = i === item;
-      i.classList.toggle('open', isTarget);
-      i.querySelector('input[type="radio"]').checked = isTarget;
-      i.querySelector('[data-toggle]').setAttribute('aria-checked', isTarget);
-    });
-    updatePlaceOrderButtonLabel();
-  }
-
-  items.forEach(item => {
-    const row = item.querySelector('[data-toggle]');
-    row.addEventListener('click', () => selectItem(item));
-    row.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        selectItem(item);
-      }
-    });
+function initPaymentAccordion() {  
+  const accordion = document.getElementById('paymentAccordion');  
+  if (!accordion) return;  
+  const items = accordion.querySelectorAll('.payment-item');  
+  
+  function selectItem(item) {    
+    items.forEach(i => {      
+      const isTarget = i === item;      
+      i.classList.toggle('open', isTarget);      
+      i.querySelector('input[type="radio"]').checked = isTarget;      
+      i.querySelector('[data-toggle]').setAttribute('aria-checked', isTarget);    
+    });    
+    updatePlaceOrderButtonLabel();  
+  }  
+  
+  items.forEach(item => {    
+    const row = item.querySelector('[data-toggle]');    
+    row.addEventListener('click', () => selectItem(item));    
+    row.addEventListener('keydown', (e) => {      
+      if (e.key === 'Enter' || e.key === ' ') {        
+        e.preventDefault();        
+        selectItem(item);      
+      }    
+    });  
   });
 }
 
-/**
- * Initialize checkout module
- */
-function initCheckout() {
-  const form = document.getElementById('checkoutForm');
-  if (form) {
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      placeOrder(form);
+function initCheckout() {  
+  const form = document.getElementById('checkoutForm');  
+  if (form) {    
+    form.addEventListener('submit', (e) => {      
+      e.preventDefault();      
+      placeOrder(form);    
+    });    
+    form.querySelectorAll('input, textarea').forEach(field => {      
+      field.addEventListener('input', () => field.classList.remove('error'));    
     });
-
-    // Clear error state on input
-    form.querySelectorAll('input, textarea').forEach(field => {
-      field.addEventListener('input', () => field.classList.remove('error'));
-    });
-  }
+    const pincodeField = form.querySelector('#postalCode');
+    if (pincodeField) {
+      pincodeField.addEventListener('input', () => {
+        const value = pincodeField.value.trim();
+        if (/^\d{6}$/.test(value)) {
+          fetchDeliveryCharge(value);
+        }
+      });
+      pincodeField.addEventListener('blur', () => {
+        const value = pincodeField.value.trim();
+        if (value) fetchDeliveryCharge(value);
+      });
+    }
+  }  
   initPaymentAccordion();
 }
 
@@ -902,60 +927,78 @@ function showToast(message, duration = 3000) {
 // PRODUCT GRID RENDERING
 // ==========================================
 
+let productsFetchSeq = 0;
+
 /**
- * Render product cards in the grid
- */
-/**
- * Render product cards in the grid (fetches live data on first call)
+ * Render product cards in the grid.
+ * Always fetches fresh live data and overwrites LIVE_PRODUCTS on every call.
  */
 async function renderProducts() {
   const grid = document.getElementById('productGrid');
   const noResults = document.getElementById('noResults');
+  if (!grid) return;
 
-  // Fetch from the live backend once, then reuse the cached list for filtering
-  if (LIVE_PRODUCTS.length === 0) {
-    try {
-      grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Loading premium collections...</div>';
+  const fetchSeq = ++productsFetchSeq;
 
-      const response = await fetch(`${API_BASE_URL}/products`);
-      if (!response.ok) throw new Error('Failed to fetch products');
+  grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Loading premium collections...</div>';
+  if (noResults) noResults.hidden = true;
 
-      LIVE_PRODUCTS = await response.json();
-    } catch (error) {
-      console.error('Error fetching live products:', error);
-      grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red; padding: 2rem;">Unable to load items. Please try again later.</div>';
-      return;
-    }
-  }
+  try {
+    const response = await fetch(`${API_BASE_URL}/products`);
+    if (!response.ok) throw new Error('Failed to fetch products');
 
-  const products = filterProducts(activeCategory, searchQuery);
+    const data = await response.json();
+    const freshProducts = Array.isArray(data) ? data : (data?.products || data?.items || []);
 
-  if (!products.length) {
-    grid.innerHTML = '';
-    noResults.hidden = false;
+    // Discard stale responses when typing quickly.
+    if (fetchSeq !== productsFetchSeq) return;
+
+    // Always overwrite the live list to prevent ghost/removed products.
+    LIVE_PRODUCTS = freshProducts;
+  } catch (error) {
+    console.error('Error fetching live products:', error);
+    if (fetchSeq !== productsFetchSeq) return;
+    LIVE_PRODUCTS = [];
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red; padding: 2rem;">Unable to load items. Please try again later.</div>';
+    if (noResults) noResults.hidden = true;
     return;
   }
 
-  noResults.hidden = true;
+  const products = filterProducts(activeCategory, searchQuery)
+    .filter(p => getProductId(p));
+
+  if (!products.length) {
+    grid.innerHTML = '';
+    if (noResults) noResults.hidden = false;
+    return;
+  }
+
+  if (noResults) noResults.hidden = true;
 
   grid.innerHTML = products.map(product => {
-    const productId = product._id || product.id;
-    const mainImage = Array.isArray(product.images) ? product.images[0] : (product.image || '');
-    const sizesList = Array.isArray(product.sizes) ? product.sizes.join(', ') : 'Free Size';
+    const productId = getProductId(product);
+    const productIdStr = String(productId);
+    const images = normalizeProductImages(product);
+    const mainImage = images[0] || '';
+    const sizes = normalizeProductSizes(product);
+    const sizesList = sizes.join(', ');
+    const categoryLabel = getCategoryLabel(product);
 
     return `
-    <article class="product-card reveal" role="listitem" data-product-id="${productId}">
+    <article class="product-card reveal" role="listitem" data-product-id="${productIdStr}">
       <div class="product-card__image-wrap">
-        <img class="product-card__image" src="${mainImage}" alt="${product.name}" loading="lazy">
-        <span class="product-card__category">${product.categoryLabel || product.category}</span>
+        <img class="product-card__image" src="${mainImage}" alt="${product.name || ''}" loading="lazy">
+        <span class="product-card__category">${categoryLabel}</span>
       </div>
       <div class="product-card__body">
-        <h3 class="product-card__name">${product.name}</h3>
-        <p class="product-card__desc">${product.description}</p>
+        <h3 class="product-card__name">${product.name || ''}</h3>
+        <p class="product-card__desc">${product.description || ''}</p>
         <p class="product-card__sizes">Sizes: ${sizesList}</p>
         <div class="product-card__footer">
-          <span class="product-card__price">${formatPrice(product.price)}</span>
-          <button class="btn btn--secondary btn--sm" data-add-cart="${productId}">
+          <span class="product-card__price">${formatPrice(product.price ?? 0)}</span>
+          <button class="btn btn--secondary btn--sm"
+            data-add-cart="${productIdStr}"
+            data-product-name="${product.name || 'Item'}">
             Add to Cart
           </button>
         </div>
@@ -972,24 +1015,14 @@ async function renderProducts() {
     });
   });
 
-  // Bind add-to-cart from card buttons
+  // Bind add-to-cart from card buttons (no reliance on cached object shape)
   grid.querySelectorAll('[data-add-cart]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const product = getProductById(btn.dataset.addCart);
-      if (product) {
-        const productId = product._id || product.id;
-        const mainImage = Array.isArray(product.images) ? product.images[0] : (product.image || '');
-        const firstSize = Array.isArray(product.sizes) ? product.sizes[0] : 'Free Size';
-        addToCart({
-          id: productId,
-          name: product.name,
-          price: product.price,
-          size: firstSize,
-          quantity: 1,
-          image: mainImage
-        });
-      }
+      const productId = btn.dataset.addCart;
+      const name = btn.dataset.productName || 'Item';
+      if (!productId) return;
+      addToCart(productId, 1, name);
     });
   });
 
@@ -1007,12 +1040,10 @@ async function renderProducts() {
 function openProductModal(productId) {
   const product = getProductById(productId);
   if (!product) return;
-
-  // Normalize fields so the rest of this function works for both
-  // local PRODUCTS-style data and live MongoDB data
-  const productImages = Array.isArray(product.images) ? product.images : (product.image ? [product.image] : []);
-  const productSizes = Array.isArray(product.sizes) && product.sizes.length ? product.sizes : ['Free Size'];
-  const productPid = product._id || product.id;
+  const productImages = normalizeProductImages(product);
+  const productSizes = normalizeProductSizes(product);
+  const productPid = getProductId(product);
+  if (!productPid) return;
 
   currentProduct = product;
   selectedSize = productSizes[0];
@@ -1035,7 +1066,7 @@ function openProductModal(productId) {
       ` : ''}
     </div>
     <div class="product-detail__info">
-      <span class="product-detail__category">${product.categoryLabel || product.category}</span>
+      <span class="product-detail__category">${getCategoryLabel(product)}</span>
       <h2 class="product-detail__title" id="productModalTitle">${product.name}</h2>
       <p class="product-detail__price">${formatPrice(product.price)}</p>
       <p class="product-detail__desc">${product.description}</p>
@@ -1101,27 +1132,13 @@ function openProductModal(productId) {
 
   // Add to Cart
   document.getElementById('detailAddToCart')?.addEventListener('click', () => {
-    addToCart({
-      id: productPid,
-      name: product.name,
-      price: product.price,
-      size: selectedSize,
-      quantity: selectedQuantity,
-      image: productImages[0] || ''
-    });
+    addToCart(String(productPid), selectedQuantity, product.name);
   });
-
+  
   // Buy Now
   document.getElementById('detailBuyNow')?.addEventListener('click', () => {
     closeProductModal();
-    openCheckout({
-      id: productPid,
-      name: product.name,
-      price: product.price,
-      size: selectedSize,
-      quantity: selectedQuantity,
-      image: productImages[0] || ''
-    });
+    buyNow(String(productPid), selectedQuantity, product.name);
   });
 
 
@@ -1257,11 +1274,9 @@ function updateActiveNavLink() {
     link.classList.toggle('active', link.dataset.section === current);
   });
 }
-
 // ==========================================
 // SEARCH & FILTERS
 // ==========================================
-
 /**
  * Initialize search and category filter controls
  */
@@ -1300,7 +1315,6 @@ function initSearchAndFilters() {
     });
   });
 }
-
 // ==========================================
 // CONTACT FORM
 // ==========================================
@@ -1333,7 +1347,6 @@ function initContactForm() {
         el.classList.remove('error');
       }
     });
-
     if (!valid) return;
 
     // Future backend integration:
@@ -1356,11 +1369,9 @@ function initContactForm() {
     field.addEventListener('input', () => field.classList.remove('error'));
   });
 }
-
 // ==========================================
 // SCROLL REVEAL ANIMATIONS
 // ==========================================
-
 /** Intersection Observer for reveal animations */
 let revealObserver;
 
@@ -1383,11 +1394,9 @@ function observeRevealElements() {
     revealObserver.observe(el);
   });
 }
-
 // ==========================================
 // APP INITIALIZATION
 // ==========================================
-
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initModals();
