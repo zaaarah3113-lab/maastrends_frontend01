@@ -1,7 +1,7 @@
 /* ── BACKEND CONFIG ── */
 var API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') 
     ? 'http://localhost:5000' 
-    : 'https://stackblitz-zentra-client1.onrender.com';
+    : 'https://stackblitz-zentra-client-0.onrender.com';
 
 /* ── LIVE DATA STORES ── */
 var PRODUCTS = [];
