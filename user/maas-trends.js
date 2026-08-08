@@ -4,7 +4,7 @@
  * Live data is fetched from the backend API (MongoDB via Render).
  */
 
-const API_BASE_URL = "https://stackblitz-zentra-client1.onrender.com/api";
+const API_BASE_URL = "https://stackblitz-zentra-client-0.onrender.com";
 
 /** Format price in Indian Rupees */
 function formatPrice(amount) {
