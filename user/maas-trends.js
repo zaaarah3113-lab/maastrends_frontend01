@@ -63,12 +63,29 @@ function getProductById(id) {
   }) || null;
 }
 
+/**
+ * Normalize a category string so admin-saved values (e.g. "Hijab", "3-Piece Set")
+ * match the storefront's filter-button slugs (e.g. "hijabs", "3_piece_sets"),
+ * regardless of casing, spacing/hyphens/underscores, or singular/plural form.
+ */
+function normalizeCategory(str) {
+  if (!str) return '';
+  let s = String(str).toLowerCase().replace(/[\s_-]+/g, '');
+  if (s.endsWith('ies')) {
+    s = s.slice(0, -3) + 'y'; // nighties -> nighty
+  } else if (s.endsWith('s') && !s.endsWith('ss')) {
+    s = s.slice(0, -1); // hijabs -> hijab, sarees -> saree, anarkalis -> anarkali
+  }
+  return s;
+}
+
 /** Filter products by category and search query */
 function filterProducts(category, query) {
   let filtered = LIVE_PRODUCTS;
 
   if (category && category !== 'all') {
-    filtered = filtered.filter(p => p.category === category);
+    const target = normalizeCategory(category);
+    filtered = filtered.filter(p => normalizeCategory(p.category) === target);
   }
 
   if (query && query.trim()) {
@@ -1396,7 +1413,6 @@ function updateActiveNavLink() {
 function initSearchAndFilters() {
   const searchInput = document.getElementById('searchInput');
   const searchClear = document.getElementById('searchClear');
-  const filters = document.getElementById('categoryFilters');
 
   let debounceTimer;
 
@@ -1416,7 +1432,13 @@ function initSearchAndFilters() {
     renderProducts();
     searchInput.focus();
   });
+}
 
+/** Wire up click handling + active/aria state for whatever category-filter
+    buttons currently exist in the DOM (the "All" button plus however many
+    admin-managed category buttons were just rendered). */
+function bindCategoryFilterButtons() {
+  const filters = document.getElementById('categoryFilters');
   filters?.querySelectorAll('.category-filter').forEach(btn => {
     btn.addEventListener('click', () => {
       activeCategory = btn.dataset.category;
@@ -1427,6 +1449,41 @@ function initSearchAndFilters() {
       renderProducts();
     });
   });
+}
+
+/**
+ * Fetch admin-managed categories and render them as filter tabs next to the
+ * fixed "All" tab, so the Collections page always matches whatever
+ * categories the admin has configured — no hardcoded category list here.
+ */
+async function initCategoryFilters() {
+  const filters = document.getElementById('categoryFilters');
+  if (!filters) return;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/categories`);
+    if (!response.ok) throw new Error('Failed to fetch categories');
+    const categories = await response.json();
+
+    const buttonsHtml = (Array.isArray(categories) ? categories : [])
+      .map(c => {
+        const slug = c.slug || normalizeCategory(c.name);
+        const label = c.name || slug;
+        return `<button class="category-filter" data-category="${slug}" role="tab">${label}</button>`;
+      })
+      .join('');
+
+    // Keep the existing "All" tab (and its active state) and append the
+    // admin-managed categories after it.
+    const allBtn = filters.querySelector('.category-filter[data-category="all"]');
+    filters.innerHTML = (allBtn ? allBtn.outerHTML : '<button class="category-filter active" data-category="all" role="tab" aria-selected="true">All</button>') + buttonsHtml;
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    // Fall back to whatever is already in the DOM (just "All") so the page
+    // still works even if the categories endpoint is unreachable.
+  }
+
+  bindCategoryFilterButtons();
 }
 // ==========================================
 // CONTACT FORM
@@ -1525,6 +1582,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCheckout();
   initWhatsApp();
   initSearchAndFilters();
+  initCategoryFilters();
   initContactForm();
   initNewArrivalsHover();
   renderProducts();

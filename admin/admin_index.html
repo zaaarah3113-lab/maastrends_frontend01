@@ -58,6 +58,7 @@ l̥ō<!DOCTYPE html>
       <div class="nav-item active" onclick="goTab('dashboard',this)"><span class="nav-icon">📊</span> Dashboard</div>
       <div class="nav-section-label">Catalogue</div>
       <div class="nav-item" onclick="goTab('products',this)"><span class="nav-icon">👗</span> Products</div>
+      <div class="nav-item" onclick="goTab('categories',this)"><span class="nav-icon">🏷️</span> Categories</div>
       <div class="nav-item" onclick="goTab('delivery',this)"><span class="nav-icon">🚚</span> Delivery Charges</div>
       <div class="nav-item" onclick="goTab('orders',this)"><span class="nav-icon">📦</span> Orders</div>
       <div class="nav-section-label">Analytics</div>
@@ -160,7 +161,7 @@ l̥ō<!DOCTYPE html>
           <div style="display:flex;gap:10px">
             <select id="cat-filter" onchange="filterProdsTable()" style="padding:10px 14px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;color:var(--text)">
               <option value="">All Categories</option>
-              <option>Saree</option><option>Nighty</option><option>Hijab</option><option>3-Piece Set</option><option>Anarkali</option>
+              <!-- Options populated from /api/categories by populateCategoryDropdowns() -->
             </select>
             <button class="btn-primary" onclick="openProdModal(null)">+ Add Product</button>
           </div>
@@ -173,6 +174,33 @@ l̥ō<!DOCTYPE html>
             <table>
               <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>MRP</th><th>Discount</th><th>Stock</th><th>Actions</th></tr></thead>
               <tbody id="prod-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- CATEGORIES TAB -->
+      <div class="tab-page" id="tab-categories">
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-head">
+            <div><div class="card-title">Add Category</div><div class="card-sub">Categories added here appear as filter tabs on the storefront's Collections page, and in the Category dropdown when adding/editing a product</div></div>
+          </div>
+          <div style="padding:20px 22px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;min-width:220px">
+              <label>Category Name</label>
+              <input type="text" id="new-cat-name" placeholder="e.g. Kurtis" onkeydown="if(event.key==='Enter')addCategory()">
+            </div>
+            <button class="btn-primary" onclick="addCategory()">+ Add Category</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">All Categories</div><div class="card-sub" id="cat-table-sub"></div></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Category Name</th><th>Slug</th><th>Actions</th></tr></thead>
+              <tbody id="cat-table-body"></tbody>
             </table>
           </div>
         </div>
@@ -306,7 +334,7 @@ l̥ō<!DOCTYPE html>
       <div class="form-row-2">
         <div class="form-group"><label>Category</label>
           <select id="pm-cat">
-            <option>Saree</option><option>Nighty</option><option>Hijab</option><option>3-Piece Set</option><option>Anarkali</option>
+            <!-- Options populated from /api/categories by populateCategoryDropdowns() -->
           </select>
         </div>
         <div class="form-group"><label>Stock Status</label>

@@ -84,10 +84,6 @@
           <div class="hero__image-frame">
             <img src="https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&h=750&fit=crop&q=80"
                  alt="Elegant ethnic fashion collection" class="hero__image" loading="eager">
-            <div class="hero__badge">
-              <span class="hero__badge-text">New</span>
-              <span class="hero__badge-sub">Arrivals</span>
-            </div>
           </div>
         </div>
       </div>
@@ -131,14 +127,9 @@
           <button class="search-bar__clear" id="searchClear" aria-label="Clear search" hidden>&times;</button>
         </div>
 
-        <!-- Category Filters -->
+        <!-- Category Filters (rendered dynamically from /api/categories by initCategoryFilters() in maas-trends.js, so they always match whatever the admin has configured) -->
         <div class="category-filters reveal" id="categoryFilters" role="tablist" aria-label="Product categories">
           <button class="category-filter active" data-category="all" role="tab" aria-selected="true">All</button>
-          <button class="category-filter" data-category="hijabs" role="tab">Hijabs</button>
-          <button class="category-filter" data-category="nighties" role="tab">Nighties</button>
-          <button class="category-filter" data-category="sarees" role="tab">Sarees</button>
-          <button class="category-filter" data-category="3_piece_sets" role="tab">3-Piece Sets</button>
-          <button class="category-filter" data-category="anarkalis" role="tab">Anarkalis</button>
         </div>
 
         <!-- Product Grid -->

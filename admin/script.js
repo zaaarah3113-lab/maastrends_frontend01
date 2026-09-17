@@ -10,6 +10,7 @@ var ORDERS = [];
 var CUSTOMERS = [];
 var DELIVERY_CHARGES = [];
 var DEFAULT_DELIVERY_CHARGE = 0;
+var CATEGORIES = [];
 var MONTHLY = [];
 var CATS = [];
 var TOP_PRODS = [];
@@ -57,7 +58,8 @@ async function initAdmin(){
       fetchDashboardStats(),
       fetchCustomers(),
       fetchDeliveryCharges(),
-      fetchDefaultDeliveryCharge()
+      fetchDefaultDeliveryCharge(),
+      fetchCategories()
     ]);
   } catch (err) {
     console.error('initAdmin failed:', err);
@@ -70,6 +72,8 @@ async function initAdmin(){
   renderOrders();
   renderReports();
   renderCustomers();
+  renderCategoriesTable();
+  populateCategoryDropdowns();
 }
 
 /* ── NAV ── */
@@ -89,7 +93,7 @@ function goTab(name, navEl){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   if(navEl) navEl.classList.add('active');
   closeSidebar();
-  var titles={dashboard:'Dashboard',products:'Products',delivery:'Delivery Charges',orders:'Orders',reports:'Sales Reports',customers:'Customers'};
+  var titles={dashboard:'Dashboard',products:'Products',categories:'Categories',delivery:'Delivery Charges',orders:'Orders',reports:'Sales Reports',customers:'Customers'};
   document.getElementById('page-title').textContent=titles[name];
 }
 
@@ -338,6 +342,77 @@ async function saveDefaultDeliveryCharge(){
     showToast('Default delivery charge saved');
   } catch (err) {
     showToast(err.message || 'Could not save default charge.', 'error');
+  }
+}
+
+/* =========================
+   CATEGORIES (admin-managed — no more hardcoded lists)
+   ========================= */
+async function fetchCategories(){
+  var data = await apiFetch('/api/categories');
+  CATEGORIES = (data || []).map(function(c){
+    return { id: c._id, name: c.name, slug: c.slug };
+  });
+}
+
+function renderCategoriesTable(){
+  var body = document.getElementById('cat-table-body');
+  if(!body) return;
+  document.getElementById('cat-table-sub').textContent = `${CATEGORIES.length} categor${CATEGORIES.length===1?'y':'ies'} configured`;
+  body.innerHTML = CATEGORIES.map(c=>`<tr>
+    <td style="font-weight:500">${c.name}</td>
+    <td style="color:var(--text-muted);font-size:12px">${c.slug}</td>
+    <td><div class="action-btns"><button class="btn-del" onclick="deleteCategory('${c.id}')">Delete</button></div></td>
+  </tr>`).join('');
+}
+
+/** Fill both the product-modal category select and the products-table
+    filter dropdown from the live CATEGORIES list, preserving whatever
+    is currently selected where possible. */
+function populateCategoryDropdowns(){
+  var modalSel = document.getElementById('pm-cat');
+  var filterSel = document.getElementById('cat-filter');
+
+  if(modalSel){
+    var prevModal = modalSel.value;
+    modalSel.innerHTML = CATEGORIES.map(c=>`<option>${c.name}</option>`).join('');
+    if(CATEGORIES.some(c=>c.name===prevModal)) modalSel.value = prevModal;
+  }
+
+  if(filterSel){
+    var prevFilter = filterSel.value;
+    filterSel.innerHTML = '<option value="">All Categories</option>' +
+      CATEGORIES.map(c=>`<option>${c.name}</option>`).join('');
+    if(CATEGORIES.some(c=>c.name===prevFilter)) filterSel.value = prevFilter;
+  }
+}
+
+async function addCategory(){
+  var input = document.getElementById('new-cat-name');
+  var name = input.value.trim();
+  if(!name){ showToast('Enter a category name', 'error'); return; }
+  try {
+    await apiFetch('/api/admin/categories', { method:'POST', body: JSON.stringify({ name: name }) });
+    input.value = '';
+    await fetchCategories();
+    renderCategoriesTable();
+    populateCategoryDropdowns();
+    showToast('Category added');
+  } catch (err) {
+    showToast(err.message || 'Could not add category.', 'error');
+  }
+}
+
+async function deleteCategory(id){
+  if(!confirm('Delete this category? Products already using it will keep their existing category text, but it will no longer appear as a filter tab.')) return;
+  try {
+    await apiFetch('/api/admin/categories/'+id, { method:'DELETE' });
+    await fetchCategories();
+    renderCategoriesTable();
+    populateCategoryDropdowns();
+    showToast('Category deleted');
+  } catch (err) {
+    showToast(err.message || 'Could not delete category.', 'error');
   }
 }
 
