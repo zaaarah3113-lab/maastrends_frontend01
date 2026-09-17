@@ -2,7 +2,7 @@
    Your Express/Mongoose backend on Render. Every read/write in this admin
    portal (products, orders, customers, dashboard stats, delivery charges)
    goes through these endpoints — nothing here is hardcoded/dummy data. */
-var API_BASE = 'https://stackblitz-zentra-client-0.onrender.com';
+var API_BASE = 'https://stackblitz-zentra-client1.onrender.com/api';
 
 /* ── LIVE DATA STORES (populated from backend, never hand-edited) ── */
 var PRODUCTS = [];
