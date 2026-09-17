@@ -1,9 +1,9 @@
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --g1:linear-gradient(135deg,#0d5c45 0%,#1a8a6b 50%,#2db892 100%);
-  --g2:linear-gradient(135deg,#0a3d2e 0%,#1a6b52 100%);
+  --g1:linear-gradient(135deg,#1D0026 0%,#55006A 50%,#7F189F 100%);
+  --g2:linear-gradient(135deg,#1D0026 0%,#55006A 100%);
   --g3:linear-gradient(135deg,#c8a96e 0%,#e8cc8a 100%);
-  --green:#1a8a6b;--green-dark:#0d5c45;--green-light:#e8f7f3;--green-mid:#d0f0e8;
+  --green:#55006A;--green-dark:#1D0026;--green-light:#f5e6f8;--green-mid:#e2b8ea;
   --gold:#c8a96e;--gold-light:#f9f3e8;
   --sidebar-w:240px;
   --white:#fff;--bg:#f4faf8;--text:#1a1a1a;--text-muted:#6b7280;--border:#e0ede8;
@@ -46,9 +46,8 @@ input,select,textarea{font-family:'Montserrat',sans-serif;outline:none}
 
 /* SIDEBAR */
 .sidebar{width:var(--sidebar-w);background:var(--g2);display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100vh;z-index:100}
-.sidebar-brand{padding:24px 20px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;gap:12px}
-.sidebar-logo{width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)}
-.brand-name{font-family:'Cormorant Garamond',serif;font-size:20px;color:white;font-weight:400}
+.sidebar-brand{padding:24px 20px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;text-align:center}
+.brand-name{font-family:'Cormorant Garamond',serif;font-size:22px;color:white;font-weight:400;letter-spacing:.5px}
 .brand-badge{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);display:block;margin-top:-2px}
 .sidebar-nav{flex:1;padding:16px 0;overflow-y:auto}
 .nav-section-label{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.35);padding:16px 20px 8px;font-weight:600}
@@ -152,7 +151,7 @@ tr:hover td{background:#fafdf9}
 .legend-pct{font-weight:700;color:var(--text)}
 .mini-pie{width:120px;height:120px;border-radius:50%;margin:16px auto;position:relative;background:conic-gradient(
   var(--green-dark) 0% 32%,
-  #2db892 32% 56%,
+  #9333ea 32% 56%,
   var(--gold) 56% 76%,
   #3b82f6 76% 90%,
   var(--red) 90% 100%
@@ -189,6 +188,9 @@ tr:hover td{background:#fafdf9}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--green)}
 .form-group textarea{resize:vertical;min-height:80px}
 .form-row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-checkbox{margin-bottom:18px}
+.form-checkbox label{display:flex;align-items:center;gap:9px;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);cursor:pointer}
+.form-checkbox input[type="checkbox"]{width:16px;height:16px;accent-color:var(--green);cursor:pointer;flex-shrink:0}
 .modal-footer{padding:16px 26px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end}
 .img-preview{width:100%;height:140px;border:2px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--bg);cursor:pointer;overflow:hidden;transition:border-color .2s}
 .img-preview:hover{border-color:var(--green)}

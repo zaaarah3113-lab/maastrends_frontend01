@@ -1,20 +1,20 @@
 /* ============================================
-   Maas Trends × Ann's Bridal BARGAINS
+   Zentra Trends × Ann's Bridal BARGAINS
    Brand Color Palette & Design Tokens
    ============================================ */
 
 :root {
-  /* Maas Trends — Primary Teal Palette */
-  --color-primary: #0F4C4A;
-  --color-secondary: #26A69A;
-  --color-secondary-light: #2DD4BF;
-  --color-accent-mint: #E0F2F1;
-  --color-accent-mint-dark: #B2DFDB;
+  /* Zentra Trends — Primary Teal Palette */
+  --color-primary: #4C1D80;
+  --color-secondary: #6B21A8;
+  --color-secondary-light: #9333EA;
+  --color-accent-mint: #F3E8FD;
+  --color-accent-mint-dark: #E4CFFA;
 
   /* Ann's Bridal — Elegant Earth Tones */
-  --color-sage: #9CAF88;
+  --color-sage: #A084C9;
   --color-cream: #F5F0E8;
-  --color-forest: #2D4A3E;
+  --color-forest: #3B1F5C;
   --color-gold: #C9A84C;
   --color-gold-light: #E8D5A3;
 
@@ -390,8 +390,8 @@ h1, h2, h3, h4, h5, h6 {
   inset: 0;
   background:
     radial-gradient(ellipse at 20% 50%, var(--color-accent-mint) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 20%, var(--color-gold-light) 0%, transparent 40%),
-    var(--color-cream);
+    radial-gradient(ellipse at 80% 20%, var(--color-secondary-light) 0%, transparent 40%),
+    var(--color-off-white);
   z-index: 0;
 }
 
@@ -474,12 +474,12 @@ h1, h2, h3, h4, h5, h6 {
   position: absolute;
   top: var(--space-lg);
   right: var(--space-lg);
-  background: var(--color-gold);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
   color: var(--color-white);
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--border-radius);
   text-align: center;
-  box-shadow: 0 4px 12px rgba(201, 168, 76, 0.4);
+  box-shadow: 0 4px 12px var(--color-shadow-heavy);
 }
 
 .hero__badge-text {
@@ -622,16 +622,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn--gold {
-  background: linear-gradient(135deg, var(--color-gold), #B8943F);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
   color: var(--color-white);
-  border-color: var(--color-gold);
+  border-color: var(--color-primary);
 }
 
 .btn--gold:hover {
-  background: linear-gradient(135deg, #B8943F, var(--color-gold));
+  background: linear-gradient(135deg, var(--color-secondary), var(--color-primary));
   color: var(--color-white);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(201, 168, 76, 0.4);
+  box-shadow: 0 6px 20px var(--color-shadow-heavy);
 }
 
 .btn--outline {
@@ -856,6 +856,83 @@ h1, h2, h3, h4, h5, h6 {
 .product-card__price-currency {
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+/* ---- NEW ARRIVALS CAROUSEL ---- */
+.new-arrivals {
+  background: linear-gradient(135deg, var(--color-accent-mint) 0%, var(--color-off-white) 100%);
+}
+
+.new-arrivals__slider {
+  position: relative;
+  max-width: 380px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: var(--border-radius-lg);
+}
+
+.new-arrivals__track {
+  display: flex;
+  transition: transform var(--transition-slow);
+}
+
+.new-arrivals__slide {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
+.new-arrivals__slide .product-card {
+  box-shadow: 0 8px 28px var(--color-shadow-heavy);
+  cursor: pointer;
+}
+
+.new-arrivals__badge {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  background: var(--color-white);
+  color: var(--color-secondary);
+  border: 1px solid var(--color-secondary-light);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--border-radius-sm);
+}
+
+.new-arrivals__dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.new-arrivals__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--border-radius-full);
+  border: none;
+  background: var(--color-accent-mint-dark);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-base), transform var(--transition-base);
+}
+
+.new-arrivals__dot:hover {
+  background: var(--color-secondary-light);
+}
+
+.new-arrivals__dot.active {
+  background: var(--color-primary);
+  transform: scale(1.25);
+}
+
+@media (min-width: 640px) {
+  .new-arrivals__slider {
+    max-width: 420px;
+  }
 }
 
 .no-results {

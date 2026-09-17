@@ -110,7 +110,8 @@ async function fetchProducts(){
       desc: p.description,
       stock: p.stockStatus,      // 'In Stock' | 'Low Stock' | 'Out of Stock'
       stockQty: p.stock,
-      img: p.image
+      img: p.image,
+      newArrival: !!p.isNewArrival
     };
   });
 }
@@ -160,10 +161,12 @@ function openProdModal(id){
     // never made it into the update request. Setting it explicitly here
     // AND sending it in saveProd() below is what actually fixes it.
     document.getElementById('pm-stock').value=p.stock||'In Stock';
+    document.getElementById('pm-new-arrival').checked=!!p.newArrival;
     document.getElementById('img-preview').innerHTML=`<img src="${p.img}" alt="">`;
   } else {
     ['pm-name','pm-price','pm-mrp','pm-fabric','pm-care','pm-desc'].forEach(f=>document.getElementById(f).value='');
     document.getElementById('pm-stock').value='In Stock';
+    document.getElementById('pm-new-arrival').checked=false;
   }
   document.getElementById('prod-modal').classList.add('open');
 }
@@ -196,7 +199,8 @@ async function saveProd(){
     care: document.getElementById('pm-care').value,
     description: document.getElementById('pm-desc').value,
     stockStatus: stockStatus,   // ← THE FIX: this field is now explicitly included
-    image: img
+    image: img,
+    isNewArrival: document.getElementById('pm-new-arrival').checked
   };
 
   try {

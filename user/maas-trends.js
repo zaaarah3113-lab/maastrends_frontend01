@@ -99,7 +99,7 @@ const WhatsAppConfig = {
   communityLink: '',
 
   // Shop name for message templates
-  shopName: 'Maas Trends'
+  shopName: 'Zentra Trends'
 };
 
 /**
@@ -691,7 +691,7 @@ async function startRazorpayCheckout(form, paymentMethod) {
       key: data.keyId,
       amount: data.amountPaise,
       currency: data.currency || 'INR',
-      name: 'Maas Trends',
+      name: 'Zentra Trends',
       description: `Order ${data.orderNumber}`,
       order_id: data.razorpayOrderId,
       prefill: {
@@ -699,7 +699,7 @@ async function startRazorpayCheckout(form, paymentMethod) {
         contact: shipping.phone,
         email: shipping.email || '',
       },
-      theme: { color: '#0d5c45' },
+      theme: { color: '#4c1d80' },
       handler: async function (response) {
         try {
           // Success callback from Razorpay popup
@@ -797,7 +797,7 @@ function showOrderConfirmation(order, paymentMethod, isOnlinePaid = false) {
       </svg>    
     </div>    
     <h2 class="confirmation__title">${title}</h2>    
-    <p class="confirmation__subtitle">Thank you for shopping with Maas Trends</p>    
+    <p class="confirmation__subtitle">Thank you for shopping with Zentra Trends</p>    
     <div class="confirmation__section">      
       <h4>Order ID</h4>      
       <p class="confirmation__order-id">${order.orderNumber}</p>    
@@ -1027,6 +1027,119 @@ async function renderProducts() {
   });
 
   observeRevealElements();
+}
+
+// ==========================================
+// NEW ARRIVALS CAROUSEL
+// ==========================================
+let newArrivalsTimer = null;
+let newArrivalsIndex = 0;
+let newArrivalsCount = 0;
+
+/** Move the track to the given slide index and update the active dot */
+function goToNewArrivalSlide(index) {
+  const track = document.getElementById('newArrivalsTrack');
+  if (!track) return;
+  newArrivalsIndex = index;
+  track.style.transform = `translateX(-${index * 100}%)`;
+  document.querySelectorAll('.new-arrivals__dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === index);
+  });
+}
+
+function stopNewArrivalsAutoSlide() {
+  if (newArrivalsTimer) {
+    clearInterval(newArrivalsTimer);
+    newArrivalsTimer = null;
+  }
+}
+
+function startNewArrivalsAutoSlide() {
+  stopNewArrivalsAutoSlide();
+  if (newArrivalsCount <= 1) return;
+  newArrivalsTimer = setInterval(() => {
+    goToNewArrivalSlide((newArrivalsIndex + 1) % newArrivalsCount);
+  }, 3000);
+}
+
+/**
+ * Fetch products, filter for isNewArrival, and render the New Arrivals
+ * carousel. Hides the section entirely when there are none, shows a
+ * single static slide for exactly one, and auto-advances every 3s
+ * (pausing on hover) for more than one.
+ */
+async function renderNewArrivals() {
+  const section = document.getElementById('newArrivals');
+  const track = document.getElementById('newArrivalsTrack');
+  const dotsWrap = document.getElementById('newArrivalsDots');
+  if (!section || !track) return;
+
+  stopNewArrivalsAutoSlide();
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/products`);
+    if (!response.ok) throw new Error('Failed to fetch products');
+
+    const data = await response.json();
+    const allProducts = Array.isArray(data) ? data : (data?.products || data?.items || []);
+    const newArrivals = allProducts.filter(p => p && p.isNewArrival && getProductId(p));
+
+    newArrivalsCount = newArrivals.length;
+
+    if (!newArrivalsCount) {
+      section.hidden = true;
+      track.innerHTML = '';
+      if (dotsWrap) dotsWrap.innerHTML = '';
+      return;
+    }
+
+    section.hidden = false;
+
+    track.innerHTML = newArrivals.map(product => {
+      const productId = String(getProductId(product));
+      const images = normalizeProductImages(product);
+      const mainImage = images[0] || '';
+
+      return `
+      <div class="new-arrivals__slide" data-product-id="${productId}">
+        <article class="product-card reveal">
+          <div class="product-card__image-wrap">
+            <img class="product-card__image" src="${mainImage}" alt="${product.name || ''}" loading="lazy">
+            <span class="new-arrivals__badge">New</span>
+          </div>
+          <div class="product-card__body">
+            <h3 class="product-card__name">${product.name || ''}</h3>
+            <div class="product-card__footer">
+              <span class="product-card__price">${formatPrice(product.price ?? 0)}</span>
+            </div>
+          </div>
+        </article>
+      </div>`;
+    }).join('');
+
+    track.querySelectorAll('.new-arrivals__slide').forEach(slide => {
+      slide.addEventListener('click', () => openProductModal(slide.dataset.productId));
+    });
+
+    if (dotsWrap) {
+      dotsWrap.innerHTML = newArrivalsCount > 1
+        ? newArrivals.map((_, i) => `<button class="new-arrivals__dot${i === 0 ? ' active' : ''}" data-slide-index="${i}" aria-label="Go to slide ${i + 1}"></button>`).join('')
+        : '';
+      dotsWrap.querySelectorAll('.new-arrivals__dot').forEach(dot => {
+        dot.addEventListener('click', () => {
+          goToNewArrivalSlide(parseInt(dot.dataset.slideIndex, 10));
+          startNewArrivalsAutoSlide();
+        });
+      });
+    }
+
+    goToNewArrivalSlide(0);
+    startNewArrivalsAutoSlide();
+    observeRevealElements();
+  } catch (error) {
+    console.error('Error fetching new arrivals:', error);
+    section.hidden = true;
+  }
 }
 
 // ==========================================
@@ -1375,6 +1488,14 @@ function initContactForm() {
 /** Intersection Observer for reveal animations */
 let revealObserver;
 
+/** Pause New Arrivals auto-slide while the user is hovering it */
+function initNewArrivalsHover() {
+  const slider = document.getElementById('newArrivalsSlider');
+  if (!slider) return;
+  slider.addEventListener('mouseenter', stopNewArrivalsAutoSlide);
+  slider.addEventListener('mouseleave', startNewArrivalsAutoSlide);
+}
+
 /**
  * Observe elements with .reveal class for scroll animations
  */
@@ -1405,6 +1526,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initWhatsApp();
   initSearchAndFilters();
   initContactForm();
+  initNewArrivalsHover();
   renderProducts();
+  renderNewArrivals();
   observeRevealElements();
 });
