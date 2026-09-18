@@ -183,6 +183,37 @@ function previewImg(inp){
   }
 }
 
+/** Uploads a single image file to Cloudinary via the backend's /api/upload
+    endpoint and returns the resulting hosted URL. Deliberately does NOT use
+    apiFetch()/getAuthHeaders() — those force a JSON Content-Type header,
+    which breaks multipart/form-data uploads (the browser must set that
+    header itself, boundary included). */
+async function uploadProductImage(file) {
+  var token = localStorage.getItem('adminToken');
+  var formData = new FormData();
+  formData.append('image', file);
+
+  var res = await fetch(API_BASE + '/api/upload', {
+    method: 'POST',
+    headers: { 'Authorization': token ? 'Bearer ' + token : '' },
+    body: formData
+  });
+
+  if (res.status === 401) {
+    doLogout();
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  var data = null;
+  try { data = await res.json(); } catch (e) { /* no body */ }
+
+  if (!res.ok || !data || !data.url) {
+    throw new Error((data && data.error) || 'Image upload failed (' + res.status + ')');
+  }
+
+  return data.url;
+}
+
 async function saveProd(){
   var name=document.getElementById('pm-name').value.trim();
   var price=parseInt(document.getElementById('pm-price').value)||0;
@@ -191,24 +222,42 @@ async function saveProd(){
   if(!name){showToast('Product name is required','error');return;}
   if(!price){showToast('Price is required','error');return;}
 
-  var imgEl=document.querySelector('#img-preview img');
-  var img=imgEl?imgEl.src:null;
+  // ↓ THIS REPLACES THE OLD BASE64-IN-JSON APPROACH: a newly chosen file is
+  // uploaded to Cloudinary here (small request, backend only relays it to
+  // Cloudinary), and only the returned URL — a short string — ever goes
+  // into the product payload below. This is what removes the old ~100kb
+  // request-size ceiling that blocked anything but tiny images.
+  var fileInput = document.getElementById('pm-img-input');
+  var newFile = fileInput && fileInput.files && fileInput.files[0];
+  var saveBtn = document.getElementById('pm-save-btn');
+  var img = null;
 
-  // ↓ THE BUG WAS HERE: this used to fall back to a hardcoded Unsplash
-  // stock photo URL whenever the preview had no <img> in it, and that fake
-  // photo got saved as the product's real `image` field — which is why
-  // New Arrivals (and everywhere else) could show a generic picture that
-  // had nothing to do with the actual product.
-  //
-  // Fix: on edit, fall back to the product's OWN existing image instead of
-  // a stock photo. On create, if there's genuinely no image at all, stop
-  // and ask the admin to upload one rather than silently faking it.
-  if(!img && editingId){
-    var existing=PRODUCTS.find(x=>x.id===editingId);
-    img=existing?existing.img:null;
+  if (newFile) {
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Uploading image…'; }
+    try {
+      img = await uploadProductImage(newFile);
+    } catch (err) {
+      showToast(err.message || 'Image upload failed. Please try again.', 'error');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Product'; }
+      return;
+    }
+    if (saveBtn) { saveBtn.textContent = 'Saving…'; }
+  } else {
+    // No new file chosen this session — reuse whatever's already shown in
+    // the preview (the existing product's own image on edit), falling back
+    // to the product's stored image if the preview element is missing.
+    var imgEl=document.querySelector('#img-preview img');
+    img=imgEl?imgEl.src:null;
+
+    if(!img && editingId){
+      var existing=PRODUCTS.find(x=>x.id===editingId);
+      img=existing?existing.img:null;
+    }
   }
+
   if(!img){
     showToast('Please upload a product image before saving.','error');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Product'; }
     return;
   }
 
@@ -239,6 +288,8 @@ async function saveProd(){
     renderDashboard();
   } catch (err) {
     showToast(err.message || 'Could not save product.', 'error');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Product'; }
   }
 }
 

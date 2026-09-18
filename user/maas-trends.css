@@ -472,8 +472,8 @@ h1, h2, h3, h4, h5, h6 {
 
 .hero__visual-placeholder {
   width: 100%;
-  max-width: 380px;
-  aspect-ratio: 3/4;
+  max-width: 300px;
+  aspect-ratio: 4/5;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -498,7 +498,7 @@ h1, h2, h3, h4, h5, h6 {
 
 @media (min-width: 640px) {
   .hero__visual-placeholder {
-    max-width: 420px;
+    max-width: 340px;
   }
 }
 
@@ -983,6 +983,36 @@ h1, h2, h3, h4, h5, h6 {
 @media (min-width: 640px) {
   .new-arrivals__slider {
     max-width: 420px;
+  }
+}
+
+/* The slider now lives inside the hero's image slot, sized down from its
+   original standalone-section footprint so the image + name + price no
+   longer runs taller than the hero and spills out past it. */
+#heroVisualFrame .new-arrivals__slider {
+  max-width: 300px;
+}
+
+#heroVisualFrame .product-card__image-wrap {
+  aspect-ratio: 4/5;
+}
+
+#heroVisualFrame .product-card__body {
+  padding: var(--space-sm) var(--space-md);
+}
+
+#heroVisualFrame .product-card__name {
+  font-size: 1rem;
+  margin-bottom: 0.15rem;
+}
+
+#heroVisualFrame .product-card__price {
+  font-size: 1.05rem;
+}
+
+@media (min-width: 640px) {
+  #heroVisualFrame .new-arrivals__slider {
+    max-width: 340px;
   }
 }
 
