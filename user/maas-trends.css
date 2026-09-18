@@ -31,7 +31,7 @@
   /* Functional */
   --color-success: #2E7D32;
   --color-error: #C62828;
-  --color-whatsapp: #40086b;
+  --color-whatsapp: #25D366;
 
   /* Typography */
   --font-heading: 'Playfair Display', Georgia, serif;
@@ -468,6 +468,38 @@ h1, h2, h3, h4, h5, h6 {
   max-width: 420px;
   aspect-ratio: 4/5;
   object-fit: cover;
+}
+
+.hero__visual-placeholder {
+  width: 100%;
+  max-width: 380px;
+  aspect-ratio: 3/4;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  text-align: center;
+  border-radius: var(--border-radius-lg);
+  background: linear-gradient(135deg, var(--color-accent-mint) 0%, var(--color-off-white) 100%);
+  border: 1px dashed var(--color-accent-mint-dark);
+}
+
+.hero__visual-placeholder-icon {
+  font-size: 2rem;
+}
+
+.hero__visual-placeholder-text {
+  color: var(--color-text-light);
+  font-weight: 500;
+}
+
+@media (min-width: 640px) {
+  .hero__visual-placeholder {
+    max-width: 420px;
+  }
 }
 
 .hero__badge {

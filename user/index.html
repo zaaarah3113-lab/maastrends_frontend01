@@ -81,31 +81,23 @@
           </div>
         </div>
         <div class="hero__visual reveal">
-          <div class="hero__image-frame">
-            <img src="https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&h=750&fit=crop&q=80"
-                 alt="Elegant ethnic fashion collection" class="hero__image" loading="eager">
+          <div class="hero__image-frame" id="heroVisualFrame">
+            <div class="new-arrivals__slider" id="newArrivalsSlider">
+              <div class="new-arrivals__track" id="newArrivalsTrack">
+                <!-- Slides rendered by JavaScript -->
+              </div>
+            </div>
+            <div class="hero__visual-placeholder" id="heroVisualPlaceholder" hidden>
+              <span class="hero__visual-placeholder-icon" aria-hidden="true">✨</span>
+              <p class="hero__visual-placeholder-text">New styles landing soon</p>
+            </div>
           </div>
+          <div class="new-arrivals__dots" id="newArrivalsDots"></div>
         </div>
       </div>
       <div class="hero__scroll-hint" aria-hidden="true">
         <span>Scroll</span>
         <div class="hero__scroll-line"></div>
-      </div>
-    </section>
-
-    <!-- ========== NEW ARRIVALS SECTION ========== -->
-    <section class="section new-arrivals" id="newArrivals" hidden>
-      <div class="container">
-        <div class="section-header reveal">
-          <h2 class="section-title">New Arrivals</h2>
-          <p class="section-subtitle">Fresh styles, just landed</p>
-        </div>
-        <div class="new-arrivals__slider" id="newArrivalsSlider">
-          <div class="new-arrivals__track" id="newArrivalsTrack">
-            <!-- Slides rendered by JavaScript -->
-          </div>
-        </div>
-        <div class="new-arrivals__dots" id="newArrivalsDots"></div>
       </div>
     </section>
 

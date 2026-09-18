@@ -1134,15 +1134,17 @@ function startNewArrivalsAutoSlide() {
 
 /**
  * Fetch products, filter for isNewArrival, and render the New Arrivals
- * carousel. Hides the section entirely when there are none, shows a
- * single static slide for exactly one, and auto-advances every 3s
- * (pausing on hover) for more than one.
+ * carousel in the hero's image slot. Shows a "new styles landing soon"
+ * placeholder when there are none, a single static slide for exactly
+ * one, and auto-advances every 3s (pausing on hover) for more than one.
  */
 async function renderNewArrivals() {
-  const section = document.getElementById('newArrivals');
+  const frame = document.getElementById('heroVisualFrame');
+  const slider = document.getElementById('newArrivalsSlider');
   const track = document.getElementById('newArrivalsTrack');
   const dotsWrap = document.getElementById('newArrivalsDots');
-  if (!section || !track) return;
+  const placeholder = document.getElementById('heroVisualPlaceholder');
+  if (!frame || !track) return;
 
   stopNewArrivalsAutoSlide();
 
@@ -1157,13 +1159,15 @@ async function renderNewArrivals() {
     newArrivalsCount = newArrivals.length;
 
     if (!newArrivalsCount) {
-      section.hidden = true;
+      if (slider) slider.hidden = true;
+      if (placeholder) placeholder.hidden = false;
       track.innerHTML = '';
       if (dotsWrap) dotsWrap.innerHTML = '';
       return;
     }
 
-    section.hidden = false;
+    if (placeholder) placeholder.hidden = true;
+    if (slider) slider.hidden = false;
 
     track.innerHTML = newArrivals.map(product => {
       const productId = String(getProductId(product));
@@ -1208,7 +1212,8 @@ async function renderNewArrivals() {
     observeRevealElements();
   } catch (error) {
     console.error('Error fetching new arrivals:', error);
-    section.hidden = true;
+    if (slider) slider.hidden = true;
+    if (placeholder) placeholder.hidden = false;
   }
 }
 
