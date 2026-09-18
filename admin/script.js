@@ -192,7 +192,25 @@ async function saveProd(){
   if(!price){showToast('Price is required','error');return;}
 
   var imgEl=document.querySelector('#img-preview img');
-  var img=imgEl?imgEl.src:'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=60&h=80&fit=crop';
+  var img=imgEl?imgEl.src:null;
+
+  // ↓ THE BUG WAS HERE: this used to fall back to a hardcoded Unsplash
+  // stock photo URL whenever the preview had no <img> in it, and that fake
+  // photo got saved as the product's real `image` field — which is why
+  // New Arrivals (and everywhere else) could show a generic picture that
+  // had nothing to do with the actual product.
+  //
+  // Fix: on edit, fall back to the product's OWN existing image instead of
+  // a stock photo. On create, if there's genuinely no image at all, stop
+  // and ask the admin to upload one rather than silently faking it.
+  if(!img && editingId){
+    var existing=PRODUCTS.find(x=>x.id===editingId);
+    img=existing?existing.img:null;
+  }
+  if(!img){
+    showToast('Please upload a product image before saving.','error');
+    return;
+  }
 
   var payload = {
     name: name,

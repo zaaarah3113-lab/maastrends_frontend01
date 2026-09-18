@@ -31,7 +31,7 @@
   /* Functional */
   --color-success: #2E7D32;
   --color-error: #C62828;
-  --color-whatsapp: #25D366;
+  --color-whatsapp: #40086b;
 
   /* Typography */
   --font-heading: 'Playfair Display', Georgia, serif;
@@ -780,6 +780,25 @@ h1, h2, h3, h4, h5, h6 {
 .product-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 12px 32px var(--color-shadow-heavy);
+}
+
+/* Brief highlight applied to a product card in the Collections grid when a
+   user arrives there by clicking a New Arrivals slide, so it's obvious
+   which product they were taken to. */
+.product-card--highlight {
+  animation: productCardHighlight 2.2s ease-out;
+}
+
+@keyframes productCardHighlight {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76, 29, 128, 0.55), 0 12px 32px var(--color-shadow-heavy);
+  }
+  60% {
+    box-shadow: 0 0 0 10px rgba(76, 29, 128, 0), 0 12px 32px var(--color-shadow-heavy);
+  }
+  100% {
+    box-shadow: 0 4px 16px var(--color-shadow);
+  }
 }
 
 .product-card__image-wrap {

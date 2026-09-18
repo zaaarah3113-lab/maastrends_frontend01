@@ -1046,8 +1046,62 @@ async function renderProducts() {
 }
 
 // ==========================================
-// NEW ARRIVALS CAROUSEL
+// NEW ARRIVALS -> COLLECTIONS NAVIGATION
 // ==========================================
+
+/**
+ * Take the user from a New Arrivals slide to the actual product inside the
+ * Collections grid — not a popup. Resets any active category filter/search
+ * that could otherwise hide the product, waits for the grid to re-render,
+ * then scrolls to and briefly highlights the matching card.
+ * @param {string} productId
+ */
+async function goToProductInCollections(productId) {
+  if (!productId) return;
+
+  // Reset the category filter to "All" so the product can't be hidden by
+  // whatever tab was previously selected.
+  const filters = document.getElementById('categoryFilters');
+  const allBtn = filters?.querySelector('.category-filter[data-category="all"]');
+  activeCategory = 'all';
+  filters?.querySelectorAll('.category-filter').forEach(b => {
+    b.classList.toggle('active', b === allBtn);
+    b.setAttribute('aria-selected', b === allBtn);
+  });
+
+  // Clear any active search text so it can't filter the product out either.
+  const searchInput = document.getElementById('searchInput');
+  const searchClear = document.getElementById('searchClear');
+  if (searchInput) searchInput.value = '';
+  searchQuery = '';
+  if (searchClear) searchClear.hidden = true;
+
+  // Re-render the grid against the reset filters, then find the card.
+  await renderProducts();
+
+  const card = document.querySelector(`#productGrid .product-card[data-product-id="${productId}"]`);
+
+  const offset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--header-height'), 10) || 72;
+
+  if (card) {
+    const top = card.getBoundingClientRect().top + window.scrollY - offset - 16;
+    window.scrollTo({ top, behavior: 'smooth' });
+
+    card.classList.add('product-card--highlight');
+    setTimeout(() => card.classList.remove('product-card--highlight'), 2200);
+  } else {
+    // Product wasn't found in the grid (e.g. removed/out of category data) —
+    // fall back to at least landing on the Collections section instead of
+    // doing nothing.
+    const section = document.getElementById('collections');
+    if (section) {
+      const top = section.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top, behavior: 'smooth' });
+    }
+  }
+}
+
+
 let newArrivalsTimer = null;
 let newArrivalsIndex = 0;
 let newArrivalsCount = 0;
@@ -1134,7 +1188,7 @@ async function renderNewArrivals() {
     }).join('');
 
     track.querySelectorAll('.new-arrivals__slide').forEach(slide => {
-      slide.addEventListener('click', () => openProductModal(slide.dataset.productId));
+      slide.addEventListener('click', () => goToProductInCollections(slide.dataset.productId));
     });
 
     if (dotsWrap) {
